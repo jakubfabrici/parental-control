@@ -55,20 +55,33 @@ Počítať sa má **aktívne používanie**, nie čas, keď PC len svieti:
 ## Vynucovanie a varovania
 
 Podľa zadania: najprv upozorniť hlasom aj textom, až po poslednom upozornení
-zamknúť. Použiť už existujúce mechanizmy agenta (`speak` pre TTS, `msg` pre
-notifikáciu):
+**uspať počítač**. Použiť už existujúce mechanizmy agenta (`speak` pre TTS,
+`msg` pre notifikáciu, `sleep` pre uspanie):
 
 | Zostatok | Čo agent urobí |
 |---|---|
 | 30 min | text |
 | 15 min | text + hlas |
 | 5 min | text + hlas |
-| 1 min | text + hlas („posledná minúta") |
-| 0 | zamknutie obrazovky (`lock`) |
+| 1 min | text + hlas („posledná minúta, ulož si to") |
+| 0 | uspanie počítača (`sleep`) |
 
-Po zamknutí sa kontroluje ďalej: keď rodič pridá čas (`/cas_add`), strop v
-ďalšom ticku vzrastie a PC sa dá znovu odomknúť bez straty rozrobenej práce.
-Preto **zamknutie, nie odhlásenie**.
+Uspanie je zvolené zámerne namiesto odhlásenia: rozrobená práca zostáva v
+pamäti, takže sa nič nestratí. Preto musí posledné varovanie prísť dosť
+zavčasu, aby si stihla uložiť, čo robí.
+
+### Po prebudení
+
+Uspaním sa nič nekončí — dieťa vie PC zobudiť tlačidlom, takže agent musí po
+prebudení stav prehodnotiť:
+
+- **čas medzitým pribudol** (rodič dal `/cas_add`, alebo je nový deň) →
+  pokračuje sa normálne, meranie beží ďalej;
+- **čas stále nie je** → agent to oznámi hlasom aj textom, dá **jednu minútu
+  odklad** (nech sa dá uložiť rozrobené) a uspí znova.
+
+Ten odklad je dôležitý, inak by sa PC uspával v slučke hneď po každom
+prebudení. Minúty počas odkladu sa už do spotreby nerátajú.
 
 ## Odolnosť voči výpadku HA
 

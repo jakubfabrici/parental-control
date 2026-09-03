@@ -22,7 +22,7 @@ Jediný účet vedie Home Assistant. Obe zariadenia sú len spotrebitelia jedné
         │                                            │
         ▼                                            ▼
   Family Link zamkne tablet              agent varuje hlasom
-  keď ho tablet vyčerpá                  a potom zamkne PC
+  keď ho tablet vyčerpá                  a potom uspí PC
         │                                            │
         └──────────► skutočná spotreba ◄─────────────┘
                  tablet: sensor.iplay_50_…used_minutes
@@ -68,7 +68,7 @@ Píše sa aj priamo:
 | `/cas` | Prehľad: rozpočet, spotreba po zariadeniach, zostatok, stav PC. |
 | `/cas_add 30` | Pridá 30 min do dnešného rozpočtu (platí pre obe zariadenia). |
 | `/cas_set 120` | Nastaví dnešný rozpočet na 120 min. |
-| `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované, obe zariadenia sa zamknú. |
+| `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované: tablet sa zamkne, PC sa uspí. |
 | `/cas_pauza`, `/cas_start` | Vypne / zapne zdieľanie (kým je vypnuté, HA nezasahuje). |
 
 Prístup majú len chaty Jakub (`5756450012`) a Mama (`8413756301`), rovnako ako
