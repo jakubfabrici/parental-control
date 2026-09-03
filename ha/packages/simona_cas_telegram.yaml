@@ -1,0 +1,196 @@
+# ============================================================================
+# Simona: ovladanie zdielaneho casu z Telegramu
+#
+# Nadvazuje na menu "Simonka PC" z pc_control.yaml - to pouziva prefixy
+# /pcm_ a /pc_cb_, tu mame vlastny prefix /pct_, takze si nekoliduju.
+# Pisat sa da aj bez menu: /cas, /cas_add 30, /cas_set 120, /cas_stop.
+#
+# Bonus a rozpocet menime VZDY len na input_number.simona_rozpocet_dnes -
+# je to jediny ucet. Limity oboch zariadeni sa z neho dopocitaju samy
+# (automatizacie v simona_cas.yaml).
+# ============================================================================
+
+script:
+  simona_cas_prehlad:
+    alias: "Simona čas: pošli prehľad"
+    mode: queued
+    max: 10
+    fields:
+      chat_id:
+        description: Telegram chat
+        required: true
+      message_id:
+        description: Ak je zadané, správa sa edituje namiesto poslania novej
+        required: false
+    sequence:
+      - variables:
+          text: >-
+            {% set rozpocet = states('input_number.simona_rozpocet_dnes') | int(0) %}
+            {% set bonus = states('sensor.iplay_50_active_bonus') | int(0) %}
+            {% set celkom = states('sensor.simona_rozpocet_celkom') | int(0) %}
+            {% set tablet = states('sensor.simona_tablet_pouzite') | int(0) %}
+            {% set pc = states('input_number.simona_pc_pouzite') | int(0) %}
+            {% set zostava = states('sensor.simona_cas_zostava') | int(0) %}
+            {% set pc_on = is_state('binary_sensor.simona_pc_online', 'on') %}
+            ⏱ <b>Spoločný čas — Simonka</b>
+            {{ '\n' }}Rozpočet dnes: <b>{{ celkom }} min</b>{% if bonus > 0 %} (rozvrh {{ rozpocet }} + bonus {{ bonus }}){% endif %}
+            {{ '\n' }}Použité: <b>{{ tablet + pc }} min</b> — 📱 tablet {{ tablet }} · 🖥 PC {{ pc }}
+            {{ '\n' }}Zostáva: <b>{{ zostava }} min</b>
+            {{ '\n' }}
+            {{ '\n' }}<i>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit') | int(0) }} min · PC povolené {{ states('sensor.simona_pc_povolene') | int(0) }} min</i>
+            {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}
+          klavesnica:
+            - "🔄 Obnoviť:/pct_stav"
+            - "➕15:/pct_add15, ➕30:/pct_add30, ➕60:/pct_add60"
+            - "Rozpočet 60:/pct_set60, 120:/pct_set120, 180:/pct_set180"
+            - "{{ '▶ Zapnúť zdieľanie:/pct_start' if is_state('input_boolean.simona_zdielany_cas','off') else '⏸ Pozastaviť:/pct_pauza' }}"
+            - "⛔ Ukončiť čas teraz:/pct_stop"
+            - "⬅ Menu:/pcm_main"
+      - if:
+          - condition: template
+            value_template: "{{ message_id is defined and message_id }}"
+        then:
+          - action: telegram_bot.edit_message
+            continue_on_error: true
+            data:
+              chat_id: "{{ chat_id }}"
+              message_id: "{{ message_id }}"
+              parse_mode: html
+              message: "{{ text }}"
+              inline_keyboard: "{{ klavesnica }}"
+        else:
+          - action: telegram_bot.send_message
+            data:
+              chat_id: "{{ chat_id }}"
+              parse_mode: html
+              message: "{{ text }}"
+              inline_keyboard: "{{ klavesnica }}"
+
+automation:
+  # -- Textove prikazy --------------------------------------------------------
+  - id: simona_cas_prikazy
+    alias: "Simona čas: príkazy /cas*"
+    mode: queued
+    max: 10
+    triggers:
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas },       id: stav }
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas_add },   id: pridaj }
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas_set },   id: nastav }
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas_stop },  id: stop }
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas_pauza }, id: pauza }
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas_start }, id: start }
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.event.data.chat_id | string in ['5756450012', '8413756301'] }}
+    actions:
+      - variables:
+          cislo: "{{ (trigger.event.data.args | default([]) | first | default(0)) | int(0) }}"
+      - choose:
+          - conditions: "{{ trigger.id == 'pridaj' and cislo > 0 }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.simona_rozpocet_dnes
+                data:
+                  value: >-
+                    {{ [ (states('input_number.simona_rozpocet_dnes') | int(0)) + cislo, 1440 ] | min }}
+          - conditions: "{{ trigger.id == 'nastav' and cislo >= 0 }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.simona_rozpocet_dnes
+                data:
+                  value: "{{ [ cislo, 1440 ] | min }}"
+          - conditions: "{{ trigger.id == 'stop' }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.simona_rozpocet_dnes
+                data:
+                  value: "{{ states('sensor.simona_cas_pouzity') | int(0) }}"
+          - conditions: "{{ trigger.id == 'pauza' }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.simona_zdielany_cas
+          - conditions: "{{ trigger.id == 'start' }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.simona_zdielany_cas
+      - delay: "00:00:02"
+      - action: script.simona_cas_prehlad
+        data:
+          chat_id: "{{ trigger.event.data.chat_id }}"
+
+  # -- Tlacidla /pct_* --------------------------------------------------------
+  - id: simona_cas_callback
+    alias: "Simona čas: tlačidlá menu"
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: event
+        event_type: telegram_callback
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.event.data.chat_id | string in ['5756450012', '8413756301'] }}
+      - condition: template
+        value_template: "{{ trigger.event.data.data.startswith('/pct_') }}"
+    actions:
+      - variables:
+          volba: "{{ trigger.event.data.data }}"
+          pridaj: >-
+            {{ {'/pct_add15': 15, '/pct_add30': 30, '/pct_add60': 60}.get(trigger.event.data.data, 0) }}
+          nastav: >-
+            {{ {'/pct_set60': 60, '/pct_set120': 120, '/pct_set180': 180}.get(trigger.event.data.data, -1) }}
+      - choose:
+          - conditions: "{{ pridaj | int(0) > 0 }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.simona_rozpocet_dnes
+                data:
+                  value: >-
+                    {{ [ (states('input_number.simona_rozpocet_dnes') | int(0)) + (pridaj | int), 1440 ] | min }}
+          - conditions: "{{ nastav | int(-1) >= 0 }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.simona_rozpocet_dnes
+                data:
+                  value: "{{ nastav | int }}"
+          - conditions: "{{ volba == '/pct_stop' }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.simona_rozpocet_dnes
+                data:
+                  value: "{{ states('sensor.simona_cas_pouzity') | int(0) }}"
+          - conditions: "{{ volba == '/pct_pauza' }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.simona_zdielany_cas
+          - conditions: "{{ volba == '/pct_start' }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.simona_zdielany_cas
+      - action: telegram_bot.answer_callback_query
+        continue_on_error: true
+        data:
+          callback_query_id: "{{ trigger.event.data.id }}"
+          message: >-
+            {% if pridaj | int(0) > 0 %}Pridané {{ pridaj }} min
+            {% elif nastav | int(-1) >= 0 %}Rozpočet {{ nastav }} min
+            {% elif volba == '/pct_stop' %}Čas ukončený
+            {% elif volba == '/pct_pauza' %}Zdieľanie pozastavené
+            {% elif volba == '/pct_start' %}Zdieľanie zapnuté
+            {% else %}Aktualizované{% endif %}
+      - delay: "00:00:02"
+      - action: script.simona_cas_prehlad
+        data:
+          chat_id: "{{ trigger.event.data.chat_id }}"
+          message_id: "{{ trigger.event.data.message.message_id }}"

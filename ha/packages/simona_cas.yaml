@@ -1,0 +1,332 @@
+# ============================================================================
+# Simona: ZDIELANY CASOVY ROZPOCET  (tablet iPlay_50 + PC 192.168.1.104)
+#
+# Myslienka: jeden vecer casu na den pre obe zariadenia dokopy.
+#   R      = celkovy rozpocet na dnes (min), preberany z rozvrhu Family Link
+#   tablet = skutocne minuty na tablete (Family Link ich uz rata sam)
+#   pc     = skutocne minuty na PC (hlasi agent na porte 8799)
+#
+# Vynutenie robia obe strany samy, HA im len priebezne posuva ich strop:
+#   FL denny limit tabletu  :=  R - pc          -> Family Link zamkne tablet
+#   povolene na PC          :=  R + bonus - tablet -> agent zamkne PC
+# Kazda strana tak vidi presne to, co jej po tej druhej zostalo. Prepocet
+# bezi kazdu minutu, takze pri sucasnom hrani na oboch zariadeniach je
+# odchylka nanajvys jedna-dve minuty a sama sa zrovna.
+#
+# Rozvrh zostava vo Family Link. Zapis limitu ide cez endpoint
+# timeLimitOverrides:batchCreate, teda je to override na DNESNY den -
+# tyzdenny rozvrh sa nemeni. Pre istotu ho o 23:57 vraciame na povodnu
+# hodnotu, aby po nas nezostal ziadny override.
+#
+# Fail-safe: ked Family Link data chybaju (unavailable), NEMENIME nic -
+# radsej ziadny zasah nez omylom nastaveny limit 0.
+# ============================================================================
+
+input_boolean:
+  simona_zdielany_cas:
+    name: Simona zdieľaný čas
+    icon: mdi:scale-balance
+
+input_number:
+  simona_rozpocet_dnes:
+    name: Simona rozpočet dnes
+    min: 0
+    max: 1440
+    step: 5
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:wallet-outline
+
+  simona_pc_pouzite:
+    name: Simona PC použité dnes
+    min: 0
+    max: 1440
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:desktop-tower-monitor
+
+input_datetime:
+  simona_pc_kontakt:
+    name: Simona PC posledný kontakt
+    has_date: true
+    has_time: true
+
+# ---------------------------------------------------------------------------
+# Vypocty
+# ---------------------------------------------------------------------------
+template:
+  - sensor:
+      # Skutocne minuty na tablete dnes. Family Link ich rata sam, my ich len
+      # citame - su nezavisle od toho, ako prave posuvame denny limit.
+      - name: Simona tablet použité
+        unique_id: simona_tablet_pouzite
+        unit_of_measurement: min
+        device_class: duration
+        state_class: measurement
+        icon: mdi:tablet
+        availability: "{{ has_value('sensor.iplay_50_screen_time_remaining') }}"
+        state: >-
+          {{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}
+
+      # Celkovy dostupny cas na dnes. Bonus pridany priamo v aplikacii Family
+      # Link sa pripocitava - rodic tym vedome zvacsil vecer.
+      - name: Simona rozpočet celkom
+        unique_id: simona_rozpocet_celkom
+        unit_of_measurement: min
+        device_class: duration
+        icon: mdi:wallet-plus-outline
+        state: >-
+          {{ (states('input_number.simona_rozpocet_dnes') | int(0))
+             + (states('sensor.iplay_50_active_bonus') | int(0)) }}
+
+      - name: Simona čas použitý
+        unique_id: simona_cas_pouzity
+        unit_of_measurement: min
+        device_class: duration
+        state_class: measurement
+        icon: mdi:timer-sand
+        availability: "{{ has_value('sensor.simona_tablet_pouzite') }}"
+        state: >-
+          {{ (states('sensor.simona_tablet_pouzite') | int(0))
+             + (states('input_number.simona_pc_pouzite') | int(0)) }}
+        attributes:
+          tablet: "{{ states('sensor.simona_tablet_pouzite') | int(0) }}"
+          pc: "{{ states('input_number.simona_pc_pouzite') | int(0) }}"
+
+      - name: Simona čas zostáva
+        unique_id: simona_cas_zostava
+        unit_of_measurement: min
+        device_class: duration
+        state_class: measurement
+        icon: mdi:timer-outline
+        availability: "{{ has_value('sensor.simona_cas_pouzity') }}"
+        state: >-
+          {{ [ (states('sensor.simona_rozpocet_celkom') | int(0))
+               - (states('sensor.simona_cas_pouzity') | int(0)), 0 ] | max }}
+
+      # Strop, ktory ma mat tablet vo Family Link. Bonus sem NEpatri - Family
+      # Link si ho pripocitava k limitu sam, inak by sa zapocital dvakrat.
+      - name: Simona tablet cieľový limit
+        unique_id: simona_tablet_cielovy_limit
+        unit_of_measurement: min
+        device_class: duration
+        icon: mdi:tablet-dashboard
+        availability: "{{ has_value('sensor.simona_tablet_pouzite') }}"
+        state: >-
+          {{ [ [ (states('input_number.simona_rozpocet_dnes') | int(0))
+                 - (states('input_number.simona_pc_pouzite') | int(0)), 0 ] | max, 1440 ] | min }}
+
+      # Kolko celkovo smie dnes odsediet pri PC (vratane uz odsedeneho).
+      - name: Simona PC povolené
+        unique_id: simona_pc_povolene
+        unit_of_measurement: min
+        device_class: duration
+        icon: mdi:monitor-lock
+        availability: "{{ has_value('sensor.simona_tablet_pouzite') }}"
+        state: >-
+          {{ [ [ (states('sensor.simona_rozpocet_celkom') | int(0))
+                 - (states('sensor.simona_tablet_pouzite') | int(0)), 0 ] | max, 1440 ] | min }}
+
+  - binary_sensor:
+      - name: Simona PC online
+        unique_id: simona_pc_online
+        device_class: connectivity
+        icon: mdi:desktop-classic
+        state: >-
+          {{ (as_timestamp(now()) - as_timestamp(states('input_datetime.simona_pc_kontakt'), 0)) < 300 }}
+
+# ---------------------------------------------------------------------------
+# Volanie agenta na PC. Odpoved: {"used": <minuty dnes>, "active": true/false}
+# ---------------------------------------------------------------------------
+rest_command:
+  pc_tick:
+    url: "http://192.168.1.104:8799/cmd"
+    method: POST
+    content_type: "application/json"
+    timeout: 8
+    payload: >-
+      {"token":"{{ pc_token }}","action":"tick","args":"{{ allowed }}"}
+
+automation:
+  # -- Polnocny start dna -----------------------------------------------------
+  # Rozpocet na dnes berieme z rozvrhu Family Link: sensor.iplay_50_daily_limit
+  # po polnoci uz ukazuje hodnotu pre novy den. PC pocitadlo nulujeme.
+  - id: simona_cas_polnocny_reset
+    alias: "Simona čas: polnočný reset rozpočtu"
+    mode: single
+    triggers:
+      - trigger: time
+        at: "00:05:00"
+    actions:
+      - action: homeassistant.update_entity
+        target:
+          entity_id:
+            - sensor.iplay_50_daily_limit
+            - sensor.iplay_50_screen_time_remaining
+      - delay: "00:00:20"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_pc_pouzite
+        data:
+          value: 0
+      # Rozpocet prepiseme len ked ma Family Link platnu hodnotu; inak
+      # nechame vcerajsiu a radsej na to upozornime.
+      - if:
+          - condition: template
+            value_template: >-
+              {{ has_value('sensor.iplay_50_daily_limit')
+                 and (states('sensor.iplay_50_daily_limit') | int(0)) > 0 }}
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.simona_rozpocet_dnes
+            data:
+              value: "{{ states('sensor.iplay_50_daily_limit') | int }}"
+        else:
+          - action: telegram_bot.send_message
+            data:
+              chat_id: 5756450012
+              parse_mode: html
+              message: >-
+                ⚠️ Family Link nevrátil denný limit, rozpočet ostal na
+                {{ states('input_number.simona_rozpocet_dnes') | int }} min z včera.
+
+  # -- Prepocet stropu pre tablet --------------------------------------------
+  # Bezi po kazdej zmene spotreby. Google API volame len ked sa cielova
+  # hodnota naozaj lisi od aktualnej, aby sme ho nebombardovali.
+  - id: simona_cas_sync_tabletu
+    alias: "Simona čas: zosúladiť limit tabletu"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.simona_tablet_cielovy_limit
+          - input_number.simona_pc_pouzite
+          - input_number.simona_rozpocet_dnes
+      - trigger: time_pattern
+        minutes: "/5"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
+      - condition: template
+        value_template: "{{ has_value('sensor.simona_tablet_cielovy_limit') }}"
+      - condition: template
+        value_template: "{{ has_value('sensor.iplay_50_daily_limit') }}"
+      - condition: template
+        value_template: >-
+          {{ (states('sensor.simona_tablet_cielovy_limit') | int(-1))
+             != (states('sensor.iplay_50_daily_limit') | int(-2)) }}
+    actions:
+      - action: familylink.set_daily_limit
+        data:
+          entity_id: switch.iplay_50
+          daily_minutes: "{{ states('sensor.simona_tablet_cielovy_limit') | int }}"
+
+  # -- Minutove spojenie s PC -------------------------------------------------
+  # HA sa pyta agenta, agent odpovie kolko dnes odsedel a dostane svoj strop.
+  # Ked je PC vypnuty, volanie ticho zlyha a posledna hodnota ostava platit.
+  - id: simona_cas_pc_tick
+    alias: "Simona čas: tick z PC"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: time_pattern
+        minutes: "/1"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
+      # Ked PC nebezi, skusame ho len raz za pat minut - inak by kazda
+      # minuta vypnuteho PC pridala do logu jednu chybu spojenia.
+      - condition: template
+        value_template: >-
+          {{ is_state('binary_sensor.simona_pc_online', 'on') or now().minute % 5 == 0 }}
+    actions:
+      - action: rest_command.pc_tick
+        continue_on_error: true
+        data:
+          pc_token: !secret pc_agent_token
+          allowed: "{{ states('sensor.simona_pc_povolene') | int(0) }}"
+        response_variable: pc
+      - variables:
+          telo: >-
+            {{ (pc.content if (pc is defined and pc.content is mapping)
+                else (pc.content | from_json)) if pc is defined else none }}
+      - condition: template
+        value_template: "{{ telo is mapping and telo.used is defined }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_pc_pouzite
+        data:
+          value: "{{ [ telo.used | int(0), 1440 ] | min }}"
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_pc_kontakt
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+  # -- Vecerne upratanie ------------------------------------------------------
+  # Override vratime na povodnu hodnotu rozvrhu, nech po nas v Google
+  # nezostane nic, co by ovplyvnilo dalsie dni.
+  - id: simona_cas_vecerne_upratanie
+    alias: "Simona čas: vrátiť limit podľa rozvrhu"
+    mode: single
+    triggers:
+      - trigger: time
+        at: "23:57:00"
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ has_value('sensor.iplay_50_daily_limit')
+             and (states('sensor.iplay_50_daily_limit') | int(-1))
+                 != (states('input_number.simona_rozpocet_dnes') | int(-2)) }}
+    actions:
+      - action: familylink.set_daily_limit
+        data:
+          entity_id: switch.iplay_50
+          daily_minutes: "{{ states('input_number.simona_rozpocet_dnes') | int }}"
+
+  # -- Upozornenia rodicom ----------------------------------------------------
+  - id: simona_cas_varovania
+    alias: "Simona čas: upozornenia do Telegramu"
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.simona_cas_zostava
+        below: 31
+        above: 29
+        id: "30"
+      - trigger: numeric_state
+        entity_id: sensor.simona_cas_zostava
+        below: 11
+        above: 9
+        id: "10"
+      - trigger: numeric_state
+        entity_id: sensor.simona_cas_zostava
+        below: 1
+        id: "0"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
+    actions:
+      - variables:
+          sprava: >-
+            {% set t = states('sensor.simona_tablet_pouzite') | int(0) %}
+            {% set p = states('input_number.simona_pc_pouzite') | int(0) %}
+            {% if trigger.id == '0' %}⛔ Simonke sa minul spoločný čas
+            {% else %}⏳ Simonke zostáva {{ trigger.id }} min spoločného času
+            {% endif %}(tablet {{ t }} + PC {{ p }} z {{ states('sensor.simona_rozpocet_celkom') | int(0) }} min).
+      - repeat:
+          for_each: ["5756450012", "8413756301"]
+          sequence:
+            - action: telegram_bot.send_message
+              continue_on_error: true
+              data:
+                chat_id: "{{ repeat.item }}"
+                parse_mode: html
+                message: "{{ sprava }}"
