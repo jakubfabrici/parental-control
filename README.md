@@ -91,12 +91,26 @@ Kým pri ňom sedí, pripomenie sa najviac raz za pol hodinu. Minúty nad rámec
 rozpočtu sa rátajú ďalej, takže v `/cas` je vidieť, o koľko limit prekročila —
 a zajtrajší rozpočet tým nie je dotknutý.
 
+## Dashboard v Home Assistante
+
+V bočnom paneli je **Simonka** (`/simonka-cas`) — samostatný dashboard so
+štyrmi sekciami: prehľad spoločného času, rýchle akcie, tablet a počítač.
+
+Zámerne to nie je view v hlavnom *Prehľade* — ten má 205 kB konfigurácie a
+nemá zmysel ho kvôli tomuto prepisovať. Samostatný dashboard nemôže nič
+existujúce rozbiť.
+
+Tlačidlá volajú skripty (`simona_cas_pridaj`, `simona_cas_nastav`,
+`simona_cas_ukonci`, `simona_pc_prikaz`), lebo karta typu *button* nevie
+odovzdať parameter priamo do `input_number.set_value`.
+
 ## Súbory
 
 | Súbor | Kam patrí |
 |---|---|
-| `ha/packages/simona_cas.yaml` | `/config/packages/` — účtovanie, prepočty, synchronizácia s Family Link |
+| `ha/packages/simona_cas.yaml` | `/config/packages/` — účtovanie, prepočty, synchronizácia s Family Link, skripty pre dashboard |
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
+| `ha/dashboard/simonka-cas.yaml` | obsah dashboardu (surový editor konfigurácie) |
 | `agent/` | Windows agent (viď `docs/AGENT.md`) |
 
 Do existujúceho `packages/pc_control.yaml` bola pridaná jediná vec — položka

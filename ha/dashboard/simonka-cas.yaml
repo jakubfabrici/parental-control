@@ -1,0 +1,265 @@
+# Dashboard "Simonka" (url: /simonka-cas), nasadeny v HA ako samostatny
+# dashboard - zamerne NIE ako view v hlavnom Prehlade, ktoreho config ma
+# 205 kB a nema zmysel ho kvoli tomuto prepisovat.
+#
+# Obnova: Nastavenia > Dashboardy > Simonka > ceruzka > tri bodky >
+# "Surovy editor konfiguracie" a vlozit tento obsah.
+#
+# Tlacidla volaju skripty z packages/simona_cas.yaml, lebo karta typu button
+# nevie odovzdat parameter priamo do input_number.set_value.
+
+views:
+  - title: Čas
+    path: cas
+    icon: mdi:timer-outline
+    type: sections
+    max_columns: 2
+    sections:
+      # -- Prehlad ------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Spoločný čas
+            heading_style: title
+            icon: mdi:scale-balance
+
+          - type: markdown
+            content: >-
+              {% set z = states('sensor.simona_cas_zostava') | int(0) %}
+
+              {% set c = states('sensor.simona_rozpocet_celkom') | int(0) %}
+
+              {% set t = states('sensor.simona_tablet_pouzite') | int(0) %}
+
+              {% set p = states('input_number.simona_pc_pouzite') | int(0) %}
+
+              {% if is_state('input_boolean.simona_zdielany_cas','off') %}### ⏸
+              Zdieľanie je pozastavené
+
+              HA teraz do ničoho nezasahuje.
+
+              {% elif z == 0 %}### ⛔ Čas na dnes je vyčerpaný
+
+              {% else %}### ⏱ Zostáva {{ z }} min
+
+              {% endif %}
+
+
+              **Rozpočet dnes:** {{ c }} min &nbsp;·&nbsp; **použité:** {{ t + p }} min
+
+
+              | | minút |
+
+              |---|---:|
+
+              | 📱 Tablet | {{ t }} |
+
+              | 🖥 Počítač | {{ p }} |
+
+
+              <small>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit')
+              | int(0) }} min · na PC smie spolu {{
+              states('sensor.simona_pc_povolene') | int(0) }} min</small>
+
+          - type: gauge
+            entity: sensor.simona_cas_zostava
+            name: Zostáva
+            unit: min
+            min: 0
+            max: 240
+            needle: false
+            severity:
+              green: 31
+              yellow: 11
+              red: 0
+
+      # -- Akcie --------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Pridať čas
+            heading_style: title
+            icon: mdi:clock-plus-outline
+
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: button
+                name: +15 min
+                icon: mdi:clock-plus-outline
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_cas_pridaj
+                  data: { minuty: 15 }
+              - type: button
+                name: +30 min
+                icon: mdi:clock-plus-outline
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_cas_pridaj
+                  data: { minuty: 30 }
+              - type: button
+                name: +60 min
+                icon: mdi:clock-plus-outline
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_cas_pridaj
+                  data: { minuty: 60 }
+
+          - type: heading
+            heading: Nastaviť rozpočet na dnes
+            heading_style: subtitle
+
+          - type: grid
+            columns: 3
+            square: false
+            cards:
+              - type: button
+                name: "60"
+                icon: mdi:wallet-outline
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_cas_nastav
+                  data: { minuty: 60 }
+              - type: button
+                name: "120"
+                icon: mdi:wallet-outline
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_cas_nastav
+                  data: { minuty: 120 }
+              - type: button
+                name: "180"
+                icon: mdi:wallet-outline
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_cas_nastav
+                  data: { minuty: 180 }
+
+          - type: entities
+            entities:
+              - entity: input_number.simona_rozpocet_dnes
+                name: Rozpočet dnes (ručne)
+              - entity: input_boolean.simona_zdielany_cas
+                name: Zdieľanie času aktívne
+
+          - type: button
+            name: Ukončiť čas teraz
+            icon: mdi:timer-off-outline
+            show_state: false
+            tap_action:
+              action: perform-action
+              perform_action: script.simona_cas_ukonci
+            confirmation:
+              text: Naozaj ukončiť čas? Tablet sa hneď zamkne.
+
+      # -- Tablet -------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Tablet (Family Link)
+            heading_style: title
+            icon: mdi:tablet
+
+          - type: entities
+            entities:
+              - entity: sensor.iplay_50_screen_time_remaining
+                name: Zostáva podľa Family Link
+              - entity: sensor.iplay_50_daily_limit
+                name: Denný limit
+              - entity: sensor.iplay_50_active_bonus
+                name: Bonus
+              - entity: binary_sensor.iplay_50_daily_limit_reached
+                name: Limit dosiahnutý
+              - entity: binary_sensor.iplay_50_bedtime_active
+                name: Nočný režim
+              - entity: binary_sensor.iplay_50_school_time_active
+                name: Školský čas
+
+          - type: entities
+            title: Ovládanie tabletu
+            entities:
+              - entity: switch.iplay_50
+                name: Zamknúť tablet
+              - entity: switch.simona_fabriciova_daily_limit
+                name: Denný limit zapnutý
+              - entity: switch.simona_fabriciova_bedtime
+                name: Nočný režim
+              - entity: button.iplay_50_ring
+                name: Zazvoniť na tablet
+
+          - type: markdown
+            content: >-
+              {% set a = state_attr('sensor.simona_fabriciova_daily_screen_time','apps') %}
+
+              **Dnes najviac času:**
+
+
+              {% if a %}{% for x in a[:5] %}- {{ x.name }} — {{ x.time }}
+
+              {% endfor %}{% else %}_zatiaľ nič_{% endif %}
+
+      # -- Pocitac ------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Počítač
+            heading_style: title
+            icon: mdi:desktop-classic
+
+          - type: entities
+            entities:
+              - entity: binary_sensor.simona_pc_online
+                name: Agent sa hlási
+              - entity: input_boolean.simona_pc_pouziva_sa
+                name: Práve pri ňom sedí
+              - entity: input_number.simona_pc_pouzite
+                name: Dnes odsedené
+              - entity: sensor.simona_pc_povolene
+                name: Smie spolu
+              - entity: input_datetime.simona_pc_kontakt
+                name: Posledný kontakt
+
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: button
+                name: Zamknúť
+                icon: mdi:lock
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_pc_prikaz
+                  data: { akcia: lock }
+              - type: button
+                name: Uspať
+                icon: mdi:power-sleep
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_pc_prikaz
+                  data: { akcia: sleep }
+              - type: button
+                name: Reštart
+                icon: mdi:restart
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_pc_prikaz
+                  data: { akcia: restart }
+                confirmation:
+                  text: Reštartovať počítač?
+              - type: button
+                name: Vypnúť
+                icon: mdi:power
+                tap_action:
+                  action: perform-action
+                  perform_action: script.simona_pc_prikaz
+                  data: { akcia: shutdown }
+                confirmation:
+                  text: Vypnúť počítač?
+
+          - type: markdown
+            content: >-
+              <small>Počítač sa po vyčerpaní času **neblokuje** — agent len
+              upozorní hlasom a textom. Keď si pri ňom po nule sadne, príde
+              správa na TV a do Telegramu.</small>

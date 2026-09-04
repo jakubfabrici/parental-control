@@ -402,3 +402,81 @@ automation:
                 chat_id: "{{ repeat.item }}"
                 parse_mode: html
                 message: "{{ sprava }}"
+
+# ---------------------------------------------------------------------------
+# Akcie pre dashboard (tlacidla potrebuju sluzbu s parametrom)
+# ---------------------------------------------------------------------------
+script:
+  simona_cas_pridaj:
+    alias: "Simona čas: pridaj minúty"
+    icon: mdi:clock-plus-outline
+    mode: queued
+    max: 5
+    fields:
+      minuty:
+        name: Minúty
+        required: true
+        selector:
+          number:
+            min: 1
+            max: 240
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_rozpocet_dnes
+        data:
+          value: >-
+            {{ [ (states('input_number.simona_rozpocet_dnes') | int(0)) + (minuty | int(0)), 1440 ] | min }}
+
+  simona_cas_nastav:
+    alias: "Simona čas: nastav rozpočet"
+    icon: mdi:wallet-outline
+    mode: queued
+    max: 5
+    fields:
+      minuty:
+        name: Minúty
+        required: true
+        selector:
+          number:
+            min: 0
+            max: 1440
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_rozpocet_dnes
+        data:
+          value: "{{ [ minuty | int(0), 1440 ] | min }}"
+
+  # Zroluje rozpocet na uz spotrebovane - tablet sa tym hned zamkne,
+  # PC sa neblokuje, len o tom pride upozornenie.
+  simona_cas_ukonci:
+    alias: "Simona čas: ukonči teraz"
+    icon: mdi:timer-off-outline
+    mode: single
+    sequence:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_rozpocet_dnes
+        data:
+          value: "{{ states('sensor.simona_cas_pouzity') | int(0) }}"
+
+  # Preposle prikaz agentovi na PC (rovnaky kanal ako Telegram menu).
+  simona_pc_prikaz:
+    alias: "Simona PC: pošli príkaz"
+    icon: mdi:desktop-classic
+    mode: queued
+    max: 5
+    fields:
+      akcia:
+        name: Akcia
+        required: true
+        selector:
+          select:
+            options: [lock, sleep, logoff, shutdown, restart, cancel, mute, unmute]
+    sequence:
+      - action: rest_command.pc_cmd
+        continue_on_error: true
+        data:
+          action: "{{ akcia }}"
+          args: ""
