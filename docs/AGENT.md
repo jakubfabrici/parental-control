@@ -97,10 +97,35 @@ Agent si posledný prijatý strop pamätá, takže vie varovať aj keď Home
 Assistant nebeží. Po obnovení spojenia HA prevezme `used` z agenta, takže sa
 nič nestratí.
 
-## Zostáva overiť po zapnutí PC
+## Stav: hotové a overené
 
-1. Prečítať zdroják existujúceho agenta (`ssh winpc`) a zistiť, ako drží
-   doterajší limit a ako sú spravené `speak` / `msg`.
-2. Doplniť `tick`, meranie aktívneho času a varovania (bez akéhokoľvek zásahu do behu PC).
-3. Otestovať: umelo znížiť rozpočet (`/cas_set`) a overiť varovania aj upozornenie na TV a v Telegrame.
-4. Overiť, že sa počítadlo po polnoci naozaj vynuluje.
+Zmeny sú v agentovi nasadené (`patch-agent.ps1`, idempotentný, so zálohou
+`PcAgent.ps1.bak-*` a kontrolou syntaxe pred zápisom). Overené naživo:
+
+```
+tick 60  ->  {"used":7,"active":false,"allowed":60,"ok":true}
+```
+
+a Home Assistant tých 7 minút prevzal a znížil limit tabletu vo Family Link
+zo 60 na 53 minút.
+
+Ako to v agentovi vyzerá teraz:
+
+- `Invoke-Tick` už neblokuje podľa limitu — `$blockNow = [bool]$s.manualBlock`,
+  takže blok ostáva len na výslovný pokyn rodiča (`/pc_block` z Telegramu).
+- Čas sa meria ďalej aj nad rámec limitu, nech je vidieť, o koľko bol
+  prekročený.
+- `Invoke-Warnings` upozorní pri 30 / 15 / 5 / 1 / 0 minútach — notifikácia aj
+  nahlas, každý stupeň raz za deň. Keď rodič pridá čas, varovania sa spustia
+  odznova (`warnedStep` sa vráti na 9999).
+- Texty sú vo `warnmsg.txt` (UTF-8, formát `minúty|text`) — v `.ps1` bez BOM by
+  PowerShell 5.1 diakritiku pokazil, rovnaký trik ako pri `blockmsg.txt`.
+- `warnedStep` pribudol do `state.json`, takže reštart PC varovania
+  nevynuluje.
+
+### Ostáva otestovať pri skutočnom používaní
+
+Varovania sa ohlásia len keď pri PC naozaj niekto je (`LastActive`), takže sa
+nedali overiť na diaľku pri nečinnom počítači. Otestuje sa to samo pri prvom
+reálnom používaní, alebo zámerne: `/cas_set` na hodnotu tesne nad spotrebou,
+potom pohnúť myšou.

@@ -260,23 +260,22 @@ automation:
           pc_token: !secret pc_agent_token
           allowed: "{{ states('sensor.simona_pc_povolene') | int(0) }}"
         response_variable: pc
-      - variables:
-          telo: >-
-            {{ (pc.content if (pc is defined and pc.content is mapping)
-                else (pc.content | from_json)) if pc is defined else none }}
+      # Ked je PC vypnute, volanie ticho zlyha a 'pc' vobec nevznikne -
+      # podmienka nas tu zastavi a posledna znama spotreba ostava platit.
       - condition: template
-        value_template: "{{ telo is mapping and telo.used is defined }}"
+        value_template: >-
+          {{ pc is defined and pc.content is defined and pc.content.used is defined }}
       - action: input_number.set_value
         target:
           entity_id: input_number.simona_pc_pouzite
         data:
-          value: "{{ [ telo.used | int(0), 1440 ] | min }}"
+          value: "{{ [ pc.content.used | int(0), 1440 ] | min }}"
       - action: input_datetime.set_datetime
         target:
           entity_id: input_datetime.simona_pc_kontakt
         data:
           datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
-      - action: "input_boolean.turn_{{ 'on' if telo.active | default(false) else 'off' }}"
+      - action: "input_boolean.turn_{{ 'on' if pc.content.active | default(false) else 'off' }}"
         target:
           entity_id: input_boolean.simona_pc_pouziva_sa
 
