@@ -214,17 +214,34 @@ views:
               - entity: binary_sensor.iplay_50_school_time_active
                 name: Školský čas
 
-          - type: entities
-            title: Ovládanie tabletu
-            entities:
-              - entity: switch.iplay_50
+          # POZOR na semantiku switch.iplay_50 v integracii familylink:
+          #   async_turn_on()  = ODOMKNUT zariadenie
+          #   async_turn_off() = ZAMKNUT zariadenie
+          # Preto tu nie je prepinac, ale dve jednoznacne tlacidla - prepinac
+          # nazvany "Zamknut tablet" zvadzal k tomu, ze jeho vypnutim
+          # (v domnieni "vypinam zamok") sa tablet prave zamkol.
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: button
                 name: Zamknúť tablet
-              - entity: switch.simona_fabriciova_daily_limit
-                name: Denný limit zapnutý
-              - entity: switch.simona_fabriciova_bedtime
-                name: Nočný režim
-              - entity: button.iplay_50_ring
-                name: Zazvoniť na tablet
+                icon: mdi:cellphone-lock
+                tap_action:
+                  action: perform-action
+                  perform_action: switch.turn_off
+                  target:
+                    entity_id: switch.iplay_50
+                confirmation:
+                  text: Zamknúť tablet? Kým bude zamknutý, Family Link neprijme zmeny limitu.
+              - type: button
+                name: Odomknúť tablet
+                icon: mdi:cellphone-check
+                tap_action:
+                  action: perform-action
+                  perform_action: switch.turn_on
+                  target:
+                    entity_id: switch.iplay_50
 
           - type: markdown
             content: >-

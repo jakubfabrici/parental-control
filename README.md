@@ -154,6 +154,14 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
 
 - **Denný limit musí byť vo Family Link zapnutý** (`switch.simona_fabriciova_daily_limit`).
   Keď je vypnutý, Google nič nevynucuje a strop tabletu je len číslo.
+- **`switch.iplay_50` má obrátenú logiku, než by si čakal:** `on` znamená
+  *odomknuté*, `off` znamená *zamknuté* (v integrácii je `async_turn_on` =
+  unlock). Preto sú na dashboarde dve tlačidlá a nie prepínač — prepínač
+  nazvaný „Zamknúť tablet" zvádzal k tomu, že jeho vypnutím sa tablet práve
+  zamkol.
+- **Kým je tablet zamknutý ručne, Family Link neprijíma zmeny denného
+  limitu.** Strop tak zamrzne na poslednej hodnote a po odomknutí sa dorovná
+  až pri najbližšom prepočte. Dashboard aj `/cas` na to upozornia.
 - **Chromecast HD je mimo rozpočtu** — má vo Family Link vlastný limit.
   Pozeranie Jellyfinu na TV teda čas na tablete ani na PC neujedá.
 - **Bonus dávaj cez Telegram**, nie v aplikácii Family Link. Cez Telegram sa

@@ -39,7 +39,8 @@ script:
             {{ '\n' }}
             {{ '\n' }}<i>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit') | int(0) }} min · PC povolené {{ states('sensor.simona_pc_povolene') | int(0) }} min</i>
             {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}{% if is_state('input_boolean.simona_bez_limitu','on') %}
-            {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}
+            {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}{% if is_state('switch.iplay_50','off') %}
+            {{ '\n' }}🔒 <b>Tablet zamknutý ručne</b> — kým to trvá, Family Link neprijme zmeny limitu{% endif %}
           klavesnica:
             - "🔄 Obnoviť:/pct_stav"
             - "➕15:/pct_add15, ➕30:/pct_add30, ➕60:/pct_add60"
