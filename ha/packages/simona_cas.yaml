@@ -84,7 +84,7 @@ input_number:
   # minut medzitym pribudlo.
   simona_snap_tablet:
     name: Simona snímka tablet
-    min: 0
+    min: -1
     max: 1440
     step: 1
     mode: box
@@ -93,7 +93,7 @@ input_number:
 
   simona_snap_pc:
     name: Simona snímka PC
-    min: 0
+    min: -1
     max: 1440
     step: 1
     mode: box
@@ -123,8 +123,9 @@ template:
         state: >-
           {% set raw = state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) %}
           {% set off = states('input_number.simona_offset_tablet') | int(0) %}
-          {% if is_state('input_boolean.simona_bez_limitu', 'on') %}
-          {{ [ (states('input_number.simona_snap_tablet') | int(0)) - off, 0 ] | max }}
+          {% set snap = states('input_number.simona_snap_tablet') | int(-1) %}
+          {% if is_state('input_boolean.simona_bez_limitu', 'on') and snap >= 0 %}
+          {{ [ snap - off, 0 ] | max }}
           {% else %}
           {{ [ raw - off, 0 ] | max }}
           {% endif %}
@@ -154,8 +155,9 @@ template:
         state: >-
           {% set raw = states('input_number.simona_pc_pouzite') | int(0) %}
           {% set off = states('input_number.simona_offset_pc') | int(0) %}
-          {% if is_state('input_boolean.simona_bez_limitu', 'on') %}
-          {{ [ (states('input_number.simona_snap_pc') | int(0)) - off, 0 ] | max }}
+          {% set snap = states('input_number.simona_snap_pc') | int(-1) %}
+          {% if is_state('input_boolean.simona_bez_limitu', 'on') and snap >= 0 %}
+          {{ [ snap - off, 0 ] | max }}
           {% else %}
           {{ [ raw - off, 0 ] | max }}
           {% endif %}
@@ -264,10 +266,15 @@ automation:
             - input_number.simona_pc_pouzite
             - input_number.simona_offset_tablet
             - input_number.simona_offset_pc
+        data:
+          value: 0
+      - action: input_number.set_value
+        target:
+          entity_id:
             - input_number.simona_snap_tablet
             - input_number.simona_snap_pc
         data:
-          value: 0
+          value: -1
       # Rozpocet prepiseme len ked ma Family Link platnu hodnotu; inak
       # nechame vcerajsiu a radsej na to upozornime.
       - if:
@@ -324,6 +331,13 @@ automation:
         entity_id: input_boolean.simona_bez_limitu
         from: "on"
         to: "off"
+    conditions:
+      # Snimka -1 znamena, ze rezim nebezal. Pri reload_all sa prepinac
+      # obnovi ako "on" a hned prepne na "off" - bez tejto podmienky by
+      # sme vtedy odpisali celu dnesnu spotrebu ako nezapocitanu.
+      - condition: numeric_state
+        entity_id: input_number.simona_snap_pc
+        above: -1
     actions:
       - action: input_number.set_value
         target:
@@ -341,6 +355,14 @@ automation:
             {% set raw = states('input_number.simona_pc_pouzite') | int(0) %}
             {% set snap = states('input_number.simona_snap_pc') | int(0) %}
             {{ [ (states('input_number.simona_offset_pc') | int(0)) + [ raw - snap, 0 ] | max, 1440 ] | min }}
+      # Snimky spat na -1, nech dalsi reload nema co odpisat.
+      - action: input_number.set_value
+        target:
+          entity_id:
+            - input_number.simona_snap_tablet
+            - input_number.simona_snap_pc
+        data:
+          value: -1
 
   # -- Prepocet stropu pre tablet --------------------------------------------
   # Bezi po kazdej zmene spotreby. Google API volame len ked sa cielova

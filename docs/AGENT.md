@@ -47,7 +47,12 @@ Počítať sa má **aktívne používanie**, nie čas, keď PC len svieti:
 - session musí byť odomknutá (`WTSGetActiveConsoleSessionId`, `SESSION_LOCK` /
   `SESSION_UNLOCK` cez `WM_WTSSESSION_CHANGE`, alebo prakticky
   `GetLastInputInfo`),
-- nečinnosť dlhšia než ~3 minúty sa neráta,
+- **ráta sa len čas, keď sa naozaj hýbalo myšou alebo písalo**: z každého
+  intervalu sa odráta, ako dlho je už ticho (`GetLastInputInfo`). Ticho celý
+  interval → nepripočíta sa nič; prestala v jeho polovici → pripočíta sa
+  polovica. Predtým stačil jeden pohyb myšou za minútu na to, aby sa
+  pripočítal celý interval,
+- **dôsledok:** pozeranie videa bez dotyku myši sa neráta,
 - počítadlo je perzistentné (prežije reštart agenta aj PC) a viaže sa na dátum —
   po polnoci sa nuluje. HA si ho o 00:05 nuluje tiež, takže obe strany
   začínajú deň na nule.
@@ -73,7 +78,12 @@ upozorňuje cez už existujúce mechanizmy (`speak` pre hlas, `msg` pre text):
 | 1 min | text + hlas („čas sa minul, dohraj to") |
 | 0 | text + hlas — a **nič viac**, PC beží ďalej |
 
-Každý stupeň sa za deň ohlási len raz.
+Každý stupeň sa za deň ohlási len raz a **medzi dvoma varovaniami musia
+uplynúť aspoň dve minúty**. To druhé je oprava z prevádzky: strop pre PC
+posiela Home Assistant a je to rozpočet mínus čas na tablete, takže keď
+dieťa medzitým hrá na tablete, strop skokovo klesne. Bez odstupu odznelo
+„zostáva 5 minút" a o dvadsať sekúnd „posledná minúta". Preskočené stupne
+sa teraz ticho odpíšu; nula sa povie vždy.
 
 ### Čo sa stane po vyčerpaní času
 

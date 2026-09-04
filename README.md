@@ -99,6 +99,11 @@ inak by sa tablet zamkol predčasne.
 Zapína sa prepínačom na dashboarde, tlačidlom v Telegrame alebo `/cas_bez`.
 Polnočný reset ho nevypína, ale nuluje nazbierané offsety.
 
+Snímka má hodnotu **−1, keď režim nebeží**, a ukončenie odpíše minúty len
+vtedy, keď je snímka platná. Bez tejto poistky sa raz stalo, že `reload_all`
+prehodil prepínač `on → off`, ukončenie sa spustilo naprázdno a odpísalo
+celú dennú spotrebu ako nezapočítanú.
+
 ### PC sa nikdy neblokuje
 
 Počítač sa po vyčerpaní času **nezamyká, neuspáva ani nevypína** — Simonka sa
