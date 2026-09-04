@@ -84,7 +84,7 @@ zostáva, a po nule už nespraví nič.
 
 Keď si po vyčerpanom čase k PC sadne, dozvieš sa o tom:
 
-- **prekrytie na TV** (`notify.tvoverlaynotify`),
+- **prekrytie na TV** (`notify.tvoverlaynotify`) — posiela sa vždy, aj keď je TV vypnutá,
 - **správa do Telegramu** Jakubovi.
 
 Kým pri ňom sedí, pripomenie sa najviac raz za pol hodinu. Minúty nad rámec

@@ -344,23 +344,17 @@ automation:
             (tablet {{ states('sensor.simona_tablet_pouzite') | int(0) }} +
             PC {{ states('input_number.simona_pc_pouzite') | int(0) }} z
             {{ states('sensor.simona_rozpocet_celkom') | int(0) }} min).
-      # Prekrytie ma kam prist len ked TV bezi - TVOverlay je aplikacia
-      # na televizore, nie sluzba na serveri.
-      - if:
-          - condition: template
-            value_template: >-
-              {{ states('media_player.55pml8709_12') not in ['off', 'unavailable', 'unknown']
-                 or states('media_player.googletv5438') not in ['off', 'unavailable', 'unknown'] }}
-        then:
-          - action: notify.tvoverlaynotify
-            continue_on_error: true
-            data:
-              title: "🖥 Simonka pri PC"
-              message: "{{ text }}"
-              data:
-                appTitle: Rodičovský dohľad
-                color: "#e8a33d"
-                seconds: 30
+      # Posielame vzdy. Ked je TV vypnuta, volanie zlyha a pokracuje sa
+      # dalej na Telegram - preto continue_on_error.
+      - action: notify.tvoverlaynotify
+        continue_on_error: true
+        data:
+          title: "🖥 Simonka pri PC"
+          message: "{{ text }}"
+          data:
+            appTitle: Rodičovský dohľad
+            color: "#e8a33d"
+            seconds: 30
       - action: telegram_bot.send_message
         continue_on_error: true
         data:
