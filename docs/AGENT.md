@@ -52,49 +52,55 @@ Počítať sa má **aktívne používanie**, nie čas, keď PC len svieti:
   po polnoci sa nuluje. HA si ho o 00:05 nuluje tiež, takže obe strany
   začínajú deň na nule.
 
-## Vynucovanie a varovania
+## Žiadne vynucovanie na PC
 
-Podľa zadania: najprv upozorniť hlasom aj textom, až po poslednom upozornení
-**uspať počítač**. Použiť už existujúce mechanizmy agenta (`speak` pre TTS,
-`msg` pre notifikáciu, `sleep` pre uspanie):
+**PC sa neblokuje, neuspáva ani neodhlasuje.** Zámerom je, aby sa Simonka
+vedela zastaviť sama — nie aby jej v tom bránil počítač. Agent teda nikdy
+nesiahne na beh systému; jediné, čo robí, je že **meria a hlási**.
+
+Vynucovanie zostáva len na tablete, kde ho robí sám Family Link.
+
+### Varovania dieťaťu
+
+Aby sa vedela rozhodnúť, musí vedieť, koľko jej zostáva. Agent preto
+upozorňuje cez už existujúce mechanizmy (`speak` pre hlas, `msg` pre text):
 
 | Zostatok | Čo agent urobí |
 |---|---|
 | 30 min | text |
 | 15 min | text + hlas |
 | 5 min | text + hlas |
-| 1 min | text + hlas („posledná minúta, ulož si to") |
-| 0 | uspanie počítača (`sleep`) |
+| 1 min | text + hlas („čas sa minul, dohraj to") |
+| 0 | text + hlas — a **nič viac**, PC beží ďalej |
 
-Uspanie je zvolené zámerne namiesto odhlásenia: rozrobená práca zostáva v
-pamäti, takže sa nič nestratí. Preto musí posledné varovanie prísť dosť
-zavčasu, aby si stihla uložiť, čo robí.
+Každý stupeň sa za deň ohlási len raz.
 
-### Po prebudení
+### Čo sa stane po vyčerpaní času
 
-Uspaním sa nič nekončí — dieťa vie PC zobudiť tlačidlom, takže agent musí po
-prebudení stav prehodnotiť:
+Nič na PC. Zareaguje Home Assistant, a to len upozornením rodičom
+(automatizácia `Simona čas: PC po vyčerpaní času`):
 
-- **čas medzitým pribudol** (rodič dal `/cas_add`, alebo je nový deň) →
-  pokračuje sa normálne, meranie beží ďalej;
-- **čas stále nie je** → agent to oznámi hlasom aj textom, dá **jednu minútu
-  odklad** (nech sa dá uložiť rozrobené) a uspí znova.
+- **prekrytie na TV** cez `notify.tvoverlaynotify`,
+- **správa Jakubovi** do Telegramu.
 
-Ten odklad je dôležitý, inak by sa PC uspával v slučke hneď po každom
-prebudení. Minúty počas odkladu sa už do spotreby nerátajú.
+Spúšťa sa, keď po vyčerpanom čase PC nabehne alebo pri ňom začne pracovať, a
+kým pri ňom sedí, pripomenie sa najviac raz za pol hodinu. Preto agent hlási
+v ticku aj `active` — bez neho by HA vedel len to, že PC je zapnutý, nie že
+pri ňom naozaj niekto je.
+
+Minúty nad rámec rozpočtu sa počítajú ďalej, takže v prehľade (`/cas`) je
+vidieť, o koľko bol limit prekročený.
 
 ## Odolnosť voči výpadku HA
 
-Agent si posledný prijatý strop pamätá. Keď HA prestane volať:
-
-- strop platí ďalej a agent vynucuje podľa neho — dieťa teda nezíska
-  neobmedzený čas vypnutím Home Assistanta,
-- po obnovení spojenia HA prevezme `used` z agenta, takže sa nič nestratí.
+Agent si posledný prijatý strop pamätá, takže vie varovať aj keď Home
+Assistant nebeží. Po obnovení spojenia HA prevezme `used` z agenta, takže sa
+nič nestratí.
 
 ## Zostáva overiť po zapnutí PC
 
 1. Prečítať zdroják existujúceho agenta (`ssh winpc`) a zistiť, ako drží
    doterajší limit a ako sú spravené `speak` / `msg`.
-2. Doplniť `tick`, meranie a vynucovanie.
-3. Otestovať: umelo znížiť rozpočet (`/cas_set`) a overiť varovania i zámok.
+2. Doplniť `tick`, meranie aktívneho času a varovania (bez akéhokoľvek zásahu do behu PC).
+3. Otestovať: umelo znížiť rozpočet (`/cas_set`) a overiť varovania aj upozornenie na TV a v Telegrame.
 4. Overiť, že sa počítadlo po polnoci naozaj vynuluje.

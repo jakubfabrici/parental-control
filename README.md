@@ -21,8 +21,8 @@ Jediný účet vedie Home Assistant. Obe zariadenia sú len spotrebitelia jedné
   tabletu := R − pc                           := R + bonus − tablet
         │                                            │
         ▼                                            ▼
-  Family Link zamkne tablet              agent varuje hlasom
-  keď ho tablet vyčerpá                  a potom uspí PC
+  Family Link zamkne tablet              agent len varuje hlasom
+  keď ho tablet vyčerpá                  a hlási spotrebu — PC beží
         │                                            │
         └──────────► skutočná spotreba ◄─────────────┘
                  tablet: sensor.iplay_50_…used_minutes
@@ -68,13 +68,28 @@ Píše sa aj priamo:
 | `/cas` | Prehľad: rozpočet, spotreba po zariadeniach, zostatok, stav PC. |
 | `/cas_add 30` | Pridá 30 min do dnešného rozpočtu (platí pre obe zariadenia). |
 | `/cas_set 120` | Nastaví dnešný rozpočet na 120 min. |
-| `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované: tablet sa zamkne, PC sa uspí. |
+| `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované, tablet sa zamkne. |
 | `/cas_pauza`, `/cas_start` | Vypne / zapne zdieľanie (kým je vypnuté, HA nezasahuje). |
 
 Prístup majú len chaty Jakub (`5756450012`) a Mama (`8413756301`), rovnako ako
 pri ostatných automatizáciách.
 
 Rodičia dostanú upozornenie pri **30**, **10** a **0** zostávajúcich minútach.
+
+### PC sa nikdy neblokuje
+
+Počítač sa po vyčerpaní času **nezamyká, neuspáva ani nevypína** — Simonka sa
+má vedieť zastaviť sama. Agent ju len upozorní hlasom a textom, koľko jej
+zostáva, a po nule už nespraví nič.
+
+Keď si po vyčerpanom čase k PC sadne, dozvieš sa o tom:
+
+- **prekrytie na TV** (`notify.tvoverlaynotify`),
+- **správa do Telegramu** Jakubovi.
+
+Kým pri ňom sedí, pripomenie sa najviac raz za pol hodinu. Minúty nad rámec
+rozpočtu sa rátajú ďalej, takže v `/cas` je vidieť, o koľko limit prekročila —
+a zajtrajší rozpočet tým nie je dotknutý.
 
 ## Súbory
 

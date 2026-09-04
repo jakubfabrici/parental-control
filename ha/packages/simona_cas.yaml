@@ -6,12 +6,16 @@
 #   tablet = skutocne minuty na tablete (Family Link ich uz rata sam)
 #   pc     = skutocne minuty na PC (hlasi agent na porte 8799)
 #
-# Vynutenie robia obe strany samy, HA im len priebezne posuva ich strop:
-#   FL denny limit tabletu  :=  R - pc          -> Family Link zamkne tablet
-#   povolene na PC          :=  R + bonus - tablet -> agent zamkne PC
+# HA obom stranam priebezne posuva ich strop:
+#   FL denny limit tabletu  :=  R - pc              -> Family Link zamkne tablet
+#   povolene na PC          :=  R + bonus - tablet  -> agent uz len varuje
 # Kazda strana tak vidi presne to, co jej po tej druhej zostalo. Prepocet
 # bezi kazdu minutu, takze pri sucasnom hrani na oboch zariadeniach je
 # odchylka nanajvys jedna-dve minuty a sama sa zrovna.
+#
+# PC sa NIJAKO neblokuje - to je zamer, nie chybajuca funkcia. Simonka sa ma
+# vediet zastavit sama; ked si po vycerpanom case sadne k PC, len o tom dame
+# vediet (prekrytie na TV + Telegram Jakubovi).
 #
 # Rozvrh zostava vo Family Link. Zapis limitu ide cez endpoint
 # timeLimitOverrides:batchCreate, teda je to override na DNESNY den -
@@ -26,6 +30,11 @@ input_boolean:
   simona_zdielany_cas:
     name: Simona zdieľaný čas
     icon: mdi:scale-balance
+
+  # Hlasi agent v kazdom ticku: sedi teraz niekto realne pri PC?
+  simona_pc_pouziva_sa:
+    name: Simona PC sa používa
+    icon: mdi:account-clock
 
 input_number:
   simona_rozpocet_dnes:
@@ -267,6 +276,9 @@ automation:
           entity_id: input_datetime.simona_pc_kontakt
         data:
           datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: "input_boolean.turn_{{ 'on' if telo.active | default(false) else 'off' }}"
+        target:
+          entity_id: input_boolean.simona_pc_pouziva_sa
 
   # -- Vecerne upratanie ------------------------------------------------------
   # Override vratime na povodnu hodnotu rozvrhu, nech po nas v Google
@@ -288,6 +300,73 @@ automation:
         data:
           entity_id: switch.iplay_50
           daily_minutes: "{{ states('input_number.simona_rozpocet_dnes') | int }}"
+
+  # -- PC pouzity po vycerpani casu -------------------------------------------
+  # PC sa zamerne NIJAKO neblokuje - Simonka sa ma rozhodnut sama. Ked si po
+  # vycerpanom case sadne k PC, len o tom dame vediet: prekrytie na TV a
+  # sprava Jakubovi do Telegramu. Aby to pri dlhsom sedeni nespamovalo,
+  # opakuje sa najviac raz za pol hodinu.
+  - id: simona_cas_pc_po_limite
+    alias: "Simona čas: PC po vyčerpaní času"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      # zapla PC (agent sa ohlasil po tom, co bol dlho ticho)
+      - trigger: state
+        entity_id: binary_sensor.simona_pc_online
+        from: "off"
+        to: "on"
+      # zacala pri nom realne robit
+      - trigger: state
+        entity_id: input_boolean.simona_pc_pouziva_sa
+        from: "off"
+        to: "on"
+      # sedi pri nom dalej - pripomenieme sa
+      - trigger: state
+        entity_id: input_boolean.simona_pc_pouziva_sa
+        to: "on"
+        for: "00:30:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
+      - condition: numeric_state
+        entity_id: sensor.simona_cas_zostava
+        below: 1
+      - condition: template
+        value_template: >-
+          {{ (as_timestamp(now())
+              - as_timestamp(state_attr('automation.simona_cas_pc_po_limite', 'last_triggered'), 0)) > 1800 }}
+    actions:
+      - variables:
+          text: >-
+            Simonka je pri PC, hoci má na dnes vyčerpaný čas
+            (tablet {{ states('sensor.simona_tablet_pouzite') | int(0) }} +
+            PC {{ states('input_number.simona_pc_pouzite') | int(0) }} z
+            {{ states('sensor.simona_rozpocet_celkom') | int(0) }} min).
+      # Prekrytie ma kam prist len ked TV bezi - TVOverlay je aplikacia
+      # na televizore, nie sluzba na serveri.
+      - if:
+          - condition: template
+            value_template: >-
+              {{ states('media_player.55pml8709_12') not in ['off', 'unavailable', 'unknown']
+                 or states('media_player.googletv5438') not in ['off', 'unavailable', 'unknown'] }}
+        then:
+          - action: notify.tvoverlaynotify
+            continue_on_error: true
+            data:
+              title: "🖥 Simonka pri PC"
+              message: "{{ text }}"
+              data:
+                appTitle: Rodičovský dohľad
+                color: "#e8a33d"
+                seconds: 30
+      - action: telegram_bot.send_message
+        continue_on_error: true
+        data:
+          chat_id: 5756450012
+          parse_mode: html
+          message: "🖥 {{ text }}"
 
   # -- Upozornenia rodicom ----------------------------------------------------
   - id: simona_cas_varovania
