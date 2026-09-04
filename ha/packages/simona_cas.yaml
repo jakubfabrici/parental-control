@@ -36,6 +36,11 @@ input_boolean:
     name: Simona PC sa používa
     icon: mdi:account-clock
 
+  # Rezim "bez limitu": cas sa neratá ani na jednom zariadeni.
+  simona_bez_limitu:
+    name: Simona bez limitu
+    icon: mdi:infinity
+
 input_number:
   simona_rozpocet_dnes:
     name: Simona rozpočet dnes
@@ -54,6 +59,46 @@ input_number:
     mode: box
     unit_of_measurement: min
     icon: mdi:desktop-tower-monitor
+
+  # Minuty, ktore sa nezapocitavaju - narastu vzdy o to, co pribudlo
+  # pocas rezimu "bez limitu".
+  simona_offset_tablet:
+    name: Simona nezapočítané minúty tablet
+    min: 0
+    max: 1440
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:tablet-cancel
+
+  simona_offset_pc:
+    name: Simona nezapočítané minúty PC
+    min: 0
+    max: 1440
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:monitor-off
+
+  # Stav v okamihu zapnutia rezimu, aby sme po vypnuti vedeli, kolko
+  # minut medzitym pribudlo.
+  simona_snap_tablet:
+    name: Simona snímka tablet
+    min: 0
+    max: 1440
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:camera-timer
+
+  simona_snap_pc:
+    name: Simona snímka PC
+    min: 0
+    max: 1440
+    step: 1
+    mode: box
+    unit_of_measurement: min
+    icon: mdi:camera-timer
 
 input_datetime:
   simona_pc_kontakt:
@@ -76,7 +121,16 @@ template:
         icon: mdi:tablet
         availability: "{{ has_value('sensor.iplay_50_screen_time_remaining') }}"
         state: >-
-          {{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}
+          {% set raw = state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) %}
+          {% set off = states('input_number.simona_offset_tablet') | int(0) %}
+          {% if is_state('input_boolean.simona_bez_limitu', 'on') %}
+          {{ [ (states('input_number.simona_snap_tablet') | int(0)) - off, 0 ] | max }}
+          {% else %}
+          {{ [ raw - off, 0 ] | max }}
+          {% endif %}
+        attributes:
+          namerane: "{{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}"
+          nezapocitane: "{{ states('input_number.simona_offset_tablet') | int(0) }}"
 
       # Celkovy dostupny cas na dnes. Bonus pridany priamo v aplikacii Family
       # Link sa pripocitava - rodic tym vedome zvacsil vecer.
@@ -89,6 +143,26 @@ template:
           {{ (states('input_number.simona_rozpocet_dnes') | int(0))
              + (states('sensor.iplay_50_active_bonus') | int(0)) }}
 
+      # To iste pre PC: agent hlasi namerane minuty, my z nich odpocitame
+      # tie, ktore padli do rezimu "bez limitu".
+      - name: Simona PC započítané
+        unique_id: simona_pc_zapocitane
+        unit_of_measurement: min
+        device_class: duration
+        state_class: measurement
+        icon: mdi:desktop-tower-monitor
+        state: >-
+          {% set raw = states('input_number.simona_pc_pouzite') | int(0) %}
+          {% set off = states('input_number.simona_offset_pc') | int(0) %}
+          {% if is_state('input_boolean.simona_bez_limitu', 'on') %}
+          {{ [ (states('input_number.simona_snap_pc') | int(0)) - off, 0 ] | max }}
+          {% else %}
+          {{ [ raw - off, 0 ] | max }}
+          {% endif %}
+        attributes:
+          namerane: "{{ states('input_number.simona_pc_pouzite') | int(0) }}"
+          nezapocitane: "{{ states('input_number.simona_offset_pc') | int(0) }}"
+
       - name: Simona čas použitý
         unique_id: simona_cas_pouzity
         unit_of_measurement: min
@@ -98,10 +172,10 @@ template:
         availability: "{{ has_value('sensor.simona_tablet_pouzite') }}"
         state: >-
           {{ (states('sensor.simona_tablet_pouzite') | int(0))
-             + (states('input_number.simona_pc_pouzite') | int(0)) }}
+             + (states('sensor.simona_pc_zapocitane') | int(0)) }}
         attributes:
           tablet: "{{ states('sensor.simona_tablet_pouzite') | int(0) }}"
-          pc: "{{ states('input_number.simona_pc_pouzite') | int(0) }}"
+          pc: "{{ states('sensor.simona_pc_zapocitane') | int(0) }}"
 
       - name: Simona čas zostáva
         unique_id: simona_cas_zostava
@@ -123,8 +197,13 @@ template:
         icon: mdi:tablet-dashboard
         availability: "{{ has_value('sensor.simona_tablet_pouzite') }}"
         state: >-
-          {{ [ [ (states('input_number.simona_rozpocet_dnes') | int(0))
-                 - (states('input_number.simona_pc_pouzite') | int(0)), 0 ] | max, 1440 ] | min }}
+          {% if is_state('input_boolean.simona_bez_limitu', 'on') %}
+          1440
+          {% else %}
+          {{ [ [ (states('input_number.simona_offset_tablet') | int(0))
+                 + (states('input_number.simona_rozpocet_dnes') | int(0))
+                 - (states('sensor.simona_pc_zapocitane') | int(0)), 0 ] | max, 1440 ] | min }}
+          {% endif %}
 
       # Kolko celkovo smie dnes odsediet pri PC (vratane uz odsedeneho).
       - name: Simona PC povolené
@@ -134,8 +213,13 @@ template:
         icon: mdi:monitor-lock
         availability: "{{ has_value('sensor.simona_tablet_pouzite') }}"
         state: >-
-          {{ [ [ (states('sensor.simona_rozpocet_celkom') | int(0))
+          {% if is_state('input_boolean.simona_bez_limitu', 'on') %}
+          1440
+          {% else %}
+          {{ [ [ (states('input_number.simona_offset_pc') | int(0))
+                 + (states('sensor.simona_rozpocet_celkom') | int(0))
                  - (states('sensor.simona_tablet_pouzite') | int(0)), 0 ] | max, 1440 ] | min }}
+          {% endif %}
 
   - binary_sensor:
       - name: Simona PC online
@@ -176,7 +260,12 @@ automation:
       - delay: "00:00:20"
       - action: input_number.set_value
         target:
-          entity_id: input_number.simona_pc_pouzite
+          entity_id:
+            - input_number.simona_pc_pouzite
+            - input_number.simona_offset_tablet
+            - input_number.simona_offset_pc
+            - input_number.simona_snap_tablet
+            - input_number.simona_snap_pc
         data:
           value: 0
       # Rozpocet prepiseme len ked ma Family Link platnu hodnotu; inak
@@ -200,6 +289,58 @@ automation:
               message: >-
                 ⚠️ Family Link nevrátil denný limit, rozpočet ostal na
                 {{ states('input_number.simona_rozpocet_dnes') | int }} min z včera.
+
+  # -- Rezim "bez limitu" ----------------------------------------------------
+  # Pri zapnuti si odlozime, kde obe strany prave su. Merat nikomu
+  # nezakazeme (ani sa neda), len si zapamatame, odkial dalej neratat.
+  - id: simona_bez_limitu_zapnutie
+    alias: "Simona čas: začiatok režimu bez limitu"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.simona_bez_limitu
+        from: "off"
+        to: "on"
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_snap_tablet
+        data:
+          value: >-
+            {{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_snap_pc
+        data:
+          value: "{{ states('input_number.simona_pc_pouzite') | int(0) }}"
+
+  # Pri vypnuti pripocitame do offsetu vsetko, co medzitym pribudlo -
+  # zapocitana spotreba tak pokracuje presne tam, kde prestala.
+  - id: simona_bez_limitu_vypnutie
+    alias: "Simona čas: koniec režimu bez limitu"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.simona_bez_limitu
+        from: "on"
+        to: "off"
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_offset_tablet
+        data:
+          value: >-
+            {% set raw = state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) %}
+            {% set snap = states('input_number.simona_snap_tablet') | int(0) %}
+            {{ [ (states('input_number.simona_offset_tablet') | int(0)) + [ raw - snap, 0 ] | max, 1440 ] | min }}
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_offset_pc
+        data:
+          value: >-
+            {% set raw = states('input_number.simona_pc_pouzite') | int(0) %}
+            {% set snap = states('input_number.simona_snap_pc') | int(0) %}
+            {{ [ (states('input_number.simona_offset_pc') | int(0)) + [ raw - snap, 0 ] | max, 1440 ] | min }}
 
   # -- Prepocet stropu pre tablet --------------------------------------------
   # Bezi po kazdej zmene spotreby. Google API volame len ked sa cielova
@@ -329,6 +470,9 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_zdielany_cas
         state: "on"
+      - condition: state
+        entity_id: input_boolean.simona_bez_limitu
+        state: "off"
       - condition: numeric_state
         entity_id: sensor.simona_cas_zostava
         below: 1
@@ -385,6 +529,9 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_zdielany_cas
         state: "on"
+      - condition: state
+        entity_id: input_boolean.simona_bez_limitu
+        state: "off"
     actions:
       - variables:
           sprava: >-

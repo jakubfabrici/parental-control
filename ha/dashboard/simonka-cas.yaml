@@ -31,9 +31,17 @@ views:
 
               {% set t = states('sensor.simona_tablet_pouzite') | int(0) %}
 
-              {% set p = states('input_number.simona_pc_pouzite') | int(0) %}
+              {% set p = states('sensor.simona_pc_zapocitane') | int(0) %}
 
-              {% if is_state('input_boolean.simona_zdielany_cas','off') %}### ⏸
+              {% set nt = states('input_number.simona_offset_tablet') | int(0) %}
+
+              {% set np = states('input_number.simona_offset_pc') | int(0) %}
+
+              {% if is_state('input_boolean.simona_bez_limitu','on') %}### ♾ Režim bez limitu
+
+              Čas sa teraz neráta — zastavený na {{ t + p }} min.
+
+              {% elif is_state('input_boolean.simona_zdielany_cas','off') %}### ⏸
               Zdieľanie je pozastavené
 
               HA teraz do ničoho nezasahuje.
@@ -56,6 +64,10 @@ views:
 
               | 🖥 Počítač | {{ p }} |
 
+              {% if nt + np > 0 %}| ♾ Nezapočítané | {{ nt + np }} |
+
+              {% endif %}
+
 
               <small>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit')
               | int(0) }} min · na PC smie spolu {{
@@ -76,6 +88,31 @@ views:
       # -- Akcie --------------------------------------------------------------
       - type: grid
         cards:
+          - type: heading
+            heading: Režim
+            heading_style: title
+            icon: mdi:infinity
+
+          - type: entities
+            entities:
+              - entity: input_boolean.simona_bez_limitu
+                name: Bez limitu (čas sa neráta)
+                secondary_info: last-changed
+              - entity: input_boolean.simona_zdielany_cas
+                name: Zdieľanie času aktívne
+
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: input_boolean.simona_bez_limitu
+                state: "on"
+            card:
+              type: markdown
+              content: >-
+                <small>Kým je zapnutý, tablet ani počítač neujedajú z rozpočtu
+                a nechodia žiadne upozornenia. Po vypnutí sa počíta ďalej od
+                hodnoty, na ktorej sa zastavilo.</small>
+
           - type: heading
             heading: Pridať čas
             heading_style: title
@@ -141,8 +178,6 @@ views:
             entities:
               - entity: input_number.simona_rozpocet_dnes
                 name: Rozpočet dnes (ručne)
-              - entity: input_boolean.simona_zdielany_cas
-                name: Zdieľanie času aktívne
 
           - type: button
             name: Ukončiť čas teraz
@@ -164,14 +199,16 @@ views:
 
           - type: entities
             entities:
+              - entity: sensor.simona_tablet_pouzite
+                name: Započítané dnes
               - entity: sensor.iplay_50_screen_time_remaining
                 name: Zostáva podľa Family Link
               - entity: sensor.iplay_50_daily_limit
                 name: Denný limit
               - entity: sensor.iplay_50_active_bonus
                 name: Bonus
-              - entity: binary_sensor.iplay_50_daily_limit_reached
-                name: Limit dosiahnutý
+              - entity: input_number.simona_offset_tablet
+                name: Nezapočítané (bez limitu)
               - entity: binary_sensor.iplay_50_bedtime_active
                 name: Nočný režim
               - entity: binary_sensor.iplay_50_school_time_active
@@ -214,8 +251,12 @@ views:
                 name: Agent sa hlási
               - entity: input_boolean.simona_pc_pouziva_sa
                 name: Práve pri ňom sedí
+              - entity: sensor.simona_pc_zapocitane
+                name: Započítané dnes
               - entity: input_number.simona_pc_pouzite
-                name: Dnes odsedené
+                name: Namerané agentom
+              - entity: input_number.simona_offset_pc
+                name: Nezapočítané (bez limitu)
               - entity: sensor.simona_pc_povolene
                 name: Smie spolu
               - entity: input_datetime.simona_pc_kontakt

@@ -29,7 +29,7 @@ script:
             {% set bonus = states('sensor.iplay_50_active_bonus') | int(0) %}
             {% set celkom = states('sensor.simona_rozpocet_celkom') | int(0) %}
             {% set tablet = states('sensor.simona_tablet_pouzite') | int(0) %}
-            {% set pc = states('input_number.simona_pc_pouzite') | int(0) %}
+            {% set pc = states('sensor.simona_pc_zapocitane') | int(0) %}
             {% set zostava = states('sensor.simona_cas_zostava') | int(0) %}
             {% set pc_on = is_state('binary_sensor.simona_pc_online', 'on') %}
             ⏱ <b>Spoločný čas — Simonka</b>
@@ -38,12 +38,14 @@ script:
             {{ '\n' }}Zostáva: <b>{{ zostava }} min</b>
             {{ '\n' }}
             {{ '\n' }}<i>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit') | int(0) }} min · PC povolené {{ states('sensor.simona_pc_povolene') | int(0) }} min</i>
-            {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}
+            {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}{% if is_state('input_boolean.simona_bez_limitu','on') %}
+            {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}
           klavesnica:
             - "🔄 Obnoviť:/pct_stav"
             - "➕15:/pct_add15, ➕30:/pct_add30, ➕60:/pct_add60"
             - "Rozpočet 60:/pct_set60, 120:/pct_set120, 180:/pct_set180"
             - "{{ '▶ Zapnúť zdieľanie:/pct_start' if is_state('input_boolean.simona_zdielany_cas','off') else '⏸ Pozastaviť:/pct_pauza' }}"
+            - "{{ '♾ Vypnúť režim bez limitu:/pct_limit_zap' if is_state('input_boolean.simona_bez_limitu','on') else '♾ Bez limitu (nerátať čas):/pct_limit_vyp' }}"
             - "⛔ Ukončiť čas teraz:/pct_stop"
             - "⬅ Menu:/pcm_main"
       - if:
@@ -79,6 +81,8 @@ automation:
       - { trigger: event, event_type: telegram_command, event_data: { command: /cas_stop },  id: stop }
       - { trigger: event, event_type: telegram_command, event_data: { command: /cas_pauza }, id: pauza }
       - { trigger: event, event_type: telegram_command, event_data: { command: /cas_start }, id: start }
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas_bez },   id: bez_zap }
+      - { trigger: event, event_type: telegram_command, event_data: { command: /cas_limit }, id: bez_vyp }
     conditions:
       - condition: template
         value_template: >-
@@ -119,6 +123,16 @@ automation:
               - action: input_boolean.turn_on
                 target:
                   entity_id: input_boolean.simona_zdielany_cas
+          - conditions: "{{ trigger.id == 'bez_zap' }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.simona_bez_limitu
+          - conditions: "{{ trigger.id == 'bez_vyp' }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.simona_bez_limitu
       - delay: "00:00:02"
       - action: script.simona_cas_prehlad
         data:
@@ -178,6 +192,16 @@ automation:
               - action: input_boolean.turn_on
                 target:
                   entity_id: input_boolean.simona_zdielany_cas
+          - conditions: "{{ volba == '/pct_limit_vyp' }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.simona_bez_limitu
+          - conditions: "{{ volba == '/pct_limit_zap' }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.simona_bez_limitu
       - action: telegram_bot.answer_callback_query
         continue_on_error: true
         data:
@@ -187,6 +211,8 @@ automation:
             {% elif nastav | int(-1) >= 0 %}Rozpočet {{ nastav }} min
             {% elif volba == '/pct_stop' %}Čas ukončený
             {% elif volba == '/pct_pauza' %}Zdieľanie pozastavené
+            {% elif volba == '/pct_limit_vyp' %}Režim bez limitu zapnutý
+            {% elif volba == '/pct_limit_zap' %}Späť na normálne rátanie
             {% elif volba == '/pct_start' %}Zdieľanie zapnuté
             {% else %}Aktualizované{% endif %}
       - delay: "00:00:02"

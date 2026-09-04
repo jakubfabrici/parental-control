@@ -49,6 +49,10 @@ po nás v Google nezostal žiadny override.
 | `input_number.simona_rozpocet_dnes` | Rozpočet na dnes (R) v minútach. O 00:05 sa preberá z rozvrhu Family Link. |
 | `input_number.simona_pc_pouzite` | Minúty odsedené dnes pri PC. Plní agent. |
 | `input_boolean.simona_zdielany_cas` | Hlavný vypínač. Keď je `off`, HA nezasahuje do ničoho. |
+| `input_boolean.simona_bez_limitu` | Režim bez limitu — kým je zapnutý, čas sa neráta. |
+| `input_number.simona_offset_tablet`, `…_pc` | Minúty, ktoré sa nezapočítali (nazbierané počas režimu bez limitu). |
+| `input_number.simona_snap_tablet`, `…_pc` | Stav v okamihu zapnutia režimu. |
+| `sensor.simona_pc_zapocitane` | Minúty pri PC po odrátaní nezapočítaných. |
 | `input_datetime.simona_pc_kontakt` | Posledné úspešné spojenie s agentom. |
 | `sensor.simona_tablet_pouzite` | Minúty na tablete (čítané z Family Link). |
 | `sensor.simona_rozpocet_celkom` | R + bonus pridaný v aplikácii Family Link. |
@@ -70,11 +74,30 @@ Píše sa aj priamo:
 | `/cas_set 120` | Nastaví dnešný rozpočet na 120 min. |
 | `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované, tablet sa zamkne. |
 | `/cas_pauza`, `/cas_start` | Vypne / zapne zdieľanie (kým je vypnuté, HA nezasahuje). |
+| `/cas_bez`, `/cas_limit` | Zapne / vypne režim bez limitu. |
 
 Prístup majú len chaty Jakub (`5756450012`) a Mama (`8413756301`), rovnako ako
 pri ostatných automatizáciách.
 
-Rodičia dostanú upozornenie pri **30**, **10** a **0** zostávajúcich minútach.
+Rodičia dostanú upozornenie pri **30**, **10** a **0** zostávajúcich minútach
+(v režime bez limitu nechodí nič).
+
+### Režim „bez limitu"
+
+Na prázdniny, chorobu alebo výnimočný deň. Kým je zapnutý, **čas sa neráta** —
+ani na tablete, ani na počítači, a nechodia žiadne upozornenia.
+
+Nestačí prestať vynucovať: Family Link aj agent merajú ďalej, nedá sa im to
+zakázať. Preto si pri zapnutí odložíme snímku stavu a pri vypnutí rozdiel
+pripočítame do „nezapočítaných" minút. Spotreba tak po vypnutí pokračuje
+presne tam, kde sa zastavila.
+
+Family Link porovnáva svoj limit proti **svojim** nameraným minútam, nie proti
+našim započítaným — preto sa nezapočítané minúty musia k stropu pripočítať,
+inak by sa tablet zamkol predčasne.
+
+Zapína sa prepínačom na dashboarde, tlačidlom v Telegrame alebo `/cas_bez`.
+Polnočný reset ho nevypína, ale nuluje nazbierané offsety.
 
 ### PC sa nikdy neblokuje
 
