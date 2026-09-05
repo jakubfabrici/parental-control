@@ -22,8 +22,8 @@ Jediný účet vedie Home Assistant. Obe zariadenia sú len spotrebitelia jedné
   tabletu := R − pc                           := R + bonus − tablet
         │                                            │
         ▼                                            ▼
-  Family Link zamkne tablet              agent len varuje hlasom
-  keď ho tablet vyčerpá                  a hlási spotrebu — PC beží
+  Family Link zamkne tablet              agent varuje hlasom; po nule
+  keď ho tablet vyčerpá                  HA počítač raz vypne
         │                                            │
         └──────────► skutočná spotreba ◄─────────────┘
                  tablet: sensor.iplay_50_…used_minutes
@@ -114,6 +114,8 @@ pôvodná chyba. Skutočnú hodnotu prevezme `simona_cas_fl_zmena`, len čo dora
 | `input_number.simona_snap_tablet`, `…_pc` | Stav v okamihu zapnutia režimu. |
 | `sensor.simona_pc_zapocitane` | Minúty pri PC po odrátaní nezapočítaných. |
 | `input_datetime.simona_pc_kontakt` | Posledné úspešné spojenie s agentom. |
+| `input_number.simona_pc_snap_vypnutie` | Minúty agenta v okamihu vypnutia PC. `−1` = dnes sa ešte nevypínalo. |
+| `input_datetime.simona_pc_upozornenie` | Kedy naposledy odišlo upozornenie „sedí pri PC po limite". |
 | `sensor.simona_tablet_pouzite` | Minúty na tablete (čítané z Family Link). |
 | `sensor.simona_rozpocet_celkom` | R + bonus pridaný v aplikácii Family Link. |
 | `sensor.simona_cas_pouzity` | Spolu tablet + PC (atribúty `tablet`, `pc`). |
@@ -164,20 +166,50 @@ vtedy, keď je snímka platná. Bez tejto poistky sa raz stalo, že `reload_all`
 prehodil prepínač `on → off`, ukončenie sa spustilo naprázdno a odpísalo
 celú dennú spotrebu ako nezapočítanú.
 
-### PC sa nikdy neblokuje
+### Po vyčerpaní času sa PC raz vypne
 
-Počítač sa po vyčerpaní času **nezamyká, neuspáva ani nevypína** — Simonka sa
-má vedieť zastaviť sama. Agent ju len upozorní hlasom a textom, koľko jej
-zostáva, a po nule už nespraví nič.
+Keď sa spoločný čas minie, počítač sa **vypne** — ale nie zákerne:
 
-Keď si po vyčerpanom čase k PC sadne, dozvieš sa o tom:
+1. agent to povie nahlas a napíše na obrazovku,
+2. **minúta** na uloženie rozrobeného,
+3. `shutdown` s ďalšími 10 sekundami,
+4. Jakubovi príde do Telegramu, že sa tak stalo.
 
-- **prekrytie na TV** (`notify.tvoverlaynotify`) — posiela sa vždy, aj keď je TV vypnutá,
-- **správa do Telegramu** Jakubovi.
+Vypína sa **raz za deň**. Keď rodič pridá čas a ten sa znova minie, vypne sa
+znova (`simona_cas_pc_obnova_vypnutia` na to vynuluje snímku).
 
-Kým pri ňom sedí, pripomenie sa najviac raz za pol hodinu. Minúty nad rámec
-rozpočtu sa rátajú ďalej, takže v `/cas` je vidieť, o koľko limit prekročila —
-a zajtrajší rozpočet tým nie je dotknutý.
+### Keď ho potom zapne znova
+
+Do počítača už **nesiahame** — v tom zostáva pôvodný zámer, že sa má vedieť
+zastaviť sama. Keď pri ňom po opätovnom zapnutí odsedí **viac ako 3 minúty**,
+odíde len upozornenie:
+
+> Simonka si zapla počítač napriek tomu, že už ho nemá používať!!! Choď to
+> vyriešiť!!!
+
+- **do Telegramu** Jakubovi,
+- **prekrytie na TV** (`notify.tvoverlaynotify`) — posiela sa vždy, aj keď je
+  TV vypnutá.
+
+Tie tri minúty sa rátajú z agentových minút od okamihu vypnutia
+(`input_number.simona_pc_snap_vypnutie`), nie zo súvislého sedenia — krátka
+prestávka teda počítadlo nevynuluje. Kým pri ňom sedí, pripomenie sa najviac
+raz za pol hodinu.
+
+Minúty nad rámec rozpočtu sa rátajú ďalej, takže v `/cas` je vidieť, o koľko
+limit prekročila — a zajtrajší rozpočet tým nie je dotknutý.
+
+#### Prečo ide TV cez samostatný skript
+
+`continue_on_error: true` **nestačí**. Keď je TV nedostupná, `notify` prepustí
+surovú aiohttp chybu („All connection attempts failed"), ktorú Home Assistant
+nepovažuje za `HomeAssistantError` — a beh automatizácie sa zastaví. Kým bola
+TV prvá v poradí, správa do Telegramu preto pri vypnutej TV **nikdy neodišla**.
+
+Teraz ide Telegram prvý a TV až za ním, cez `script.turn_on
+script.simona_tv_oznam` — to je „pošli a zabudni", takže prípadná chyba
+zostane v skripte. (`rest_command` sa naopak správa správne, `continue_on_error`
+tam funguje — overené na trasách `simona_cas_pc_tick`.)
 
 ## Dashboard v Home Assistante
 
@@ -234,5 +266,7 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
   (`sensor.iplay_50_active_bonus`), ale platí len pre tablet.
 - **Keď je PC vypnutý**, HA sa naň pýta raz za päť minút a posledná známa
   spotreba ostáva platiť. Vypnutím PC sa teda čas nedá „vrátiť".
+- **Vypnutie PC nie je blokovanie.** Zapnúť si ho môže hneď znova — vtedy už
+  chodia len upozornenia. Kto chce tvrdé blokovanie, musí to riešiť inak.
 - **Keď Family Link nedá dáta**, systém úmyselne nerobí nič — radšej žiadny
   zásah než omylom nastavený limit 0.

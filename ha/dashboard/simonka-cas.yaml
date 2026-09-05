@@ -361,8 +361,16 @@ views:
                 confirmation:
                   text: Vypnúť počítač?
 
+          - type: entities
+            entities:
+              - entity: input_number.simona_pc_snap_vypnutie
+                name: Snímka pri vypnutí (−1 = dnes nevypínané)
+              - entity: input_datetime.simona_pc_upozornenie
+                name: Posledné upozornenie
+
           - type: markdown
             content: >-
-              <small>Počítač sa po vyčerpaní času **neblokuje** — agent len
-              upozorní hlasom a textom. Keď si pri ňom po nule sadne, príde
-              správa na TV a do Telegramu.</small>
+              <small>Po vyčerpaní času sa počítač **raz vypne** — najprv
+              varovanie nahlas a minúta na uloženie práce. Keď ho zapne znova,
+              už doňho nesiahame: po **3 minútach** používania príde
+              upozornenie na TV a do Telegramu.</small>

@@ -57,13 +57,16 @@ Počítať sa má **aktívne používanie**, nie čas, keď PC len svieti:
   po polnoci sa nuluje. HA si ho o 00:05 nuluje tiež, takže obe strany
   začínajú deň na nule.
 
-## Žiadne vynucovanie na PC
+## Vynucovanie: agent nič, vypnutie riadi HA
 
-**PC sa neblokuje, neuspáva ani neodhlasuje.** Zámerom je, aby sa Simonka
-vedela zastaviť sama — nie aby jej v tom bránil počítač. Agent teda nikdy
-nesiahne na beh systému; jediné, čo robí, je že **meria a hlási**.
+**Agent sám na beh systému nesiahne** — meria a hlási, nič viac. Jeho lokálny
+limit už nie je autorita.
 
-Vynucovanie zostáva len na tablete, kde ho robí sám Family Link.
+Vypnutie po vyčerpaní času robí **Home Assistant**, existujúcou akciou
+`shutdown` (rovnaký kanál ako tlačidlo v Telegram menu), a to raz za deň.
+Predtým dá agent hlasové aj textové varovanie a minútu na uloženie práce.
+Keď PC Simonka zapne znova, už doňho nikto nesiaha — chodia len upozornenia
+rodičom.
 
 ### Varovania dieťaťu
 
@@ -87,16 +90,20 @@ sa teraz ticho odpíšu; nula sa povie vždy.
 
 ### Čo sa stane po vyčerpaní času
 
-Nič na PC. Zareaguje Home Assistant, a to len upozornením rodičom
-(automatizácia `Simona čas: PC po vyčerpaní času`):
+`Simona čas: vypnúť PC po vyčerpaní času` pošle cez `pc_cmd`:
 
-- **prekrytie na TV** cez `notify.tvoverlaynotify`,
-- **správa Jakubovi** do Telegramu.
+1. `speak` — „Simonka, čas na dnes sa minul. Počítač sa o minútu vypne…"
+2. `msg` — to isté textom,
+3. minúta pauzy,
+4. `shutdown` s `delay: 10`.
 
-Spúšťa sa, keď po vyčerpanom čase PC nabehne alebo pri ňom začne pracovať, a
-kým pri ňom sedí, pripomenie sa najviac raz za pol hodinu. Preto agent hlási
-v ticku aj `active` — bez neho by HA vedel len to, že PC je zapnutý, nie že
-pri ňom naozaj niekto je.
+Potom už do PC nikto nesiaha. Keď ho zapne znova a odsedí pri ňom **viac ako
+3 minúty** (agentove minúty od okamihu vypnutia, nie súvislé sedenie), pošle
+`Simona čas: PC po vyčerpaní času` upozornenie do Telegramu a na TV. Kým pri
+ňom sedí, pripomenie sa najviac raz za pol hodinu.
+
+Preto agent hlási v ticku aj `active` — bez neho by HA vedel len to, že PC je
+zapnutý, nie že pri ňom naozaj niekto je.
 
 Minúty nad rámec rozpočtu sa počítajú ďalej, takže v prehľade (`/cas`) je
 vidieť, o koľko bol limit prekročený.
