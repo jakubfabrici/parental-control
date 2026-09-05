@@ -67,9 +67,37 @@ Rozvrh preto držíme v HA ako sedem helperov `input_number.simona_rozvrh_po`
 `zajtra`), o 00:05 sa ňou naplní rozpočet a o 23:57 sa ňou prepíše aj limit vo
 Family Link.
 
-**Je to kópia, nie zrkadlo.** Keď zmeníš rozvrh v aplikácii Family Link, HA sa
-to nedozvie — treba ho prepísať aj na dashboarde (sekcia *Týždenný rozvrh*).
-Opačne to funguje: hodnota z HA sa do Family Link zapíše sama.
+### Zmena v aplikácii sa preberie sama
+
+Keď zmeníš denný limit priamo v aplikácii Family Link, HA to prevezme —
+prepíše si tým rozpočet na dnes **aj** hodnotu rozvrhu na dnešný deň, a pošle
+ti o tom správu do Telegramu. Kópia v HA tak zostáva verná.
+
+Háčik je v tom, že do `sensor.iplay_50_daily_limit` píšeme aj my sami:
+`familylink.set_daily_limit` si po zápise hneď vyžiada refresh koordinátora,
+takže **každý náš zápis sa do toho senzora o pár sekúnd vráti** ako „zmena".
+Pri 30-sekundovom pollingu by slepé preberanie znamenalo, že si každú minútu
+prečítame vlastný odpočet — tá istá degradácia ako predtým, len 30× rýchlejšie.
+
+Preto si posledných päť hodnôt, ktoré sme do Family Link zapísali, pamätáme v
+`input_text.simona_fl_zapisane` a preberáme len takú zmenu, ktorá sa **ani
+jednej z nich nerovná** — teda tú, ktorú urobil rodič.
+
+Ďalšie poistky v `simona_cas_fl_zmena`:
+
+- prechody cez `unknown` / `unavailable` (reštart HA, výpadok Google) sa
+  ignorujú,
+- **nula sa neberie** — chodí aj z nočného a školského režimu,
+- kým je tablet zamknutý ručne, Family Link zmeny neprijíma a hlási neaktuálne
+  čísla, tak sa vtedy nepreberá nič.
+
+Medzi **00:00 a 00:10** do Family Link zámerne nezapisujeme: práve vtedy sa v
+ňom objaví rozvrh na nový deň a náš zápis by ho prepísal skôr, než by sme si
+ho stihli prečítať. Z rovnakého dôvodu má polnočný reset minútovú pauzu.
+
+Polnočný reset preto naďalej berie hodnotu z **lokálneho** rozvrhu, nie priamo
+z Family Link — o 00:05 ešte nemusí byť načítaná a čítať vtedy naslepo bola
+pôvodná chyba. Skutočnú hodnotu prevezme `simona_cas_fl_zmena`, len čo dorazí.
 
 ## Entity
 
@@ -77,6 +105,7 @@ Opačne to funguje: hodnota z HA sa do Family Link zapíše sama.
 |---|---|
 | `input_number.simona_rozvrh_po` … `_ne` | Týždenný rozvrh: minúty na jednotlivé dni. Kópia rozvrhu z Family Link. |
 | `sensor.simona_rozvrh_dnes` | Koľko minút dáva rozvrh na dnes (atribúty `den`, `zajtra`). |
+| `input_text.simona_fl_zapisane` | Posledných 5 hodnôt zapísaných do Family Link — slúži na rozoznanie vlastnej ozveny. |
 | `input_number.simona_rozpocet_dnes` | Rozpočet na dnes (R) v minútach. O 00:05 sa preberá z rozvrhu v HA. |
 | `input_number.simona_pc_pouzite` | Minúty odsedené dnes pri PC. Plní agent. |
 | `input_boolean.simona_zdielany_cas` | Hlavný vypínač. Keď je `off`, HA nezasahuje do ničoho. |
@@ -185,8 +214,9 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
 
 ## Na čo si dať pozor
 
-- **Rozvrh sa mení na dvoch miestach.** Zmena v aplikácii Family Link sa do HA
-  nepremietne (nedá sa odtiaľ vyčítať) — prepíš ho aj na dashboarde.
+- **Zmena v aplikácii prepíše aj rozvrh v HA, nielen dnešok.** Ak si chcel dať
+  výnimku len na dnes, oprav rozvrh na dashboarde — Telegram ti to pripomenie.
+  Na jednorazové pridanie času je lepší `/cas_add` alebo bonus vo Family Link.
 - **Denný limit musí byť vo Family Link zapnutý** (`switch.simona_fabriciova_daily_limit`).
   Keď je vypnutý, Google nič nevynucuje a strop tabletu je len číslo.
 - **`switch.iplay_50` má obrátenú logiku, než by si čakal:** `on` znamená

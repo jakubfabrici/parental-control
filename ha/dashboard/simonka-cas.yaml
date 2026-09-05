@@ -207,9 +207,10 @@ views:
               zajtra {{ state_attr('sensor.simona_rozvrh_dnes','zajtra') | int(0) }} min.
 
 
-              <small>Nový rozpočet sa z rozvrhu naplní o 00:05. Zmena tu
-              **neprepíše rozvrh v aplikácii Family Link** — tam ho treba
-              zmeniť zvlášť, aby si obe strany zodpovedali.</small>
+              <small>Nový rozpočet sa z rozvrhu naplní o 00:05. Keď zmeníš
+              limit v aplikácii Family Link, HA to prevezme sem samo (a napíše
+              ti o tom). Opačne to neplatí — zmena tu **neprepíše rozvrh v
+              aplikácii**.</small>
 
           - type: entities
             entities:
@@ -227,6 +228,11 @@ views:
                 name: Sobota
               - entity: input_number.simona_rozvrh_ne
                 name: Nedeľa
+              # Diagnostika: co sme naposledy poslali do Family Link. Podla
+              # tohto zoznamu automatizacia rozozna vlastnu ozvenu od zmeny,
+              # ktoru urobil rodic v aplikacii.
+              - entity: input_text.simona_fl_zapisane
+                name: Naposledy zapísané do FL
 
       # -- Tablet -------------------------------------------------------------
       - type: grid
