@@ -189,6 +189,45 @@ views:
             confirmation:
               text: Naozaj ukončiť čas? Tablet sa hneď zamkne.
 
+      # -- Tyzdenny rozvrh ----------------------------------------------------
+      # Kopia rozvrhu z Family Link - ten sa cez integraciu vycitat NEDA
+      # (coordinator vidi len hodnotu platnu na dnes, vratane nasho override).
+      # O 00:05 sa z tohto rozvrhu naplni rozpocet na novy den.
+      - type: grid
+        cards:
+          - type: heading
+            heading: Týždenný rozvrh
+            heading_style: title
+            icon: mdi:calendar-clock
+
+          - type: markdown
+            content: >-
+              Dnes je **{{ state_attr('sensor.simona_rozvrh_dnes','den') }}** —
+              rozvrh dáva **{{ states('sensor.simona_rozvrh_dnes') | int(0) }} min**,
+              zajtra {{ state_attr('sensor.simona_rozvrh_dnes','zajtra') | int(0) }} min.
+
+
+              <small>Nový rozpočet sa z rozvrhu naplní o 00:05. Zmena tu
+              **neprepíše rozvrh v aplikácii Family Link** — tam ho treba
+              zmeniť zvlášť, aby si obe strany zodpovedali.</small>
+
+          - type: entities
+            entities:
+              - entity: input_number.simona_rozvrh_po
+                name: Pondelok
+              - entity: input_number.simona_rozvrh_ut
+                name: Utorok
+              - entity: input_number.simona_rozvrh_st
+                name: Streda
+              - entity: input_number.simona_rozvrh_stv
+                name: Štvrtok
+              - entity: input_number.simona_rozvrh_pi
+                name: Piatok
+              - entity: input_number.simona_rozvrh_so
+                name: Sobota
+              - entity: input_number.simona_rozvrh_ne
+                name: Nedeľa
+
       # -- Tablet -------------------------------------------------------------
       - type: grid
         cards:

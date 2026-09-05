@@ -32,11 +32,14 @@ script:
             {% set pc = states('sensor.simona_pc_zapocitane') | int(0) %}
             {% set zostava = states('sensor.simona_cas_zostava') | int(0) %}
             {% set pc_on = is_state('binary_sensor.simona_pc_online', 'on') %}
+            {% set rozvrh = states('sensor.simona_rozvrh_dnes') | int(0) %}
+            {% set den = state_attr('sensor.simona_rozvrh_dnes', 'den') %}
             ⏱ <b>Spoločný čas — Simonka</b>
-            {{ '\n' }}Rozpočet dnes: <b>{{ celkom }} min</b>{% if bonus > 0 %} (rozvrh {{ rozpocet }} + bonus {{ bonus }}){% endif %}
+            {{ '\n' }}Rozpočet dnes: <b>{{ celkom }} min</b>{% if bonus > 0 %} (základ {{ rozpocet }} + bonus {{ bonus }}){% endif %}
             {{ '\n' }}Použité: <b>{{ tablet + pc }} min</b> — 📱 tablet {{ tablet }} · 🖥 PC {{ pc }}
             {{ '\n' }}Zostáva: <b>{{ zostava }} min</b>
             {{ '\n' }}
+            {{ '\n' }}<i>Rozvrh na dnes ({{ den }}): {{ rozvrh }} min{% if rozpocet != rozvrh %} · dnes ručne upravené na {{ rozpocet }} min{% endif %}</i>
             {{ '\n' }}<i>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit') | int(0) }} min · PC povolené {{ states('sensor.simona_pc_povolene') | int(0) }} min</i>
             {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}{% if is_state('input_boolean.simona_bez_limitu','on') %}
             {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}{% if is_state('switch.iplay_50','off') %}

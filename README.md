@@ -2,7 +2,8 @@
 
 Jeden denný rozpočet obrazovkového času pre **tablet** (Android, Google Family
 Link) a **Windows PC** dokopy. Keď Simonka odsedí hodinu na tablete, na PC jej
-zostanú dve — a naopak. Ovláda sa z Telegramu, rozvrh zostáva vo Family Link.
+zostanú dve — a naopak. Ovláda sa z Telegramu; týždenný rozvrh je v Home
+Assistante ako kópia toho z Family Link (viac nižšie).
 
 ## Ako to funguje
 
@@ -10,7 +11,7 @@ Jediný účet vedie Home Assistant. Obe zariadenia sú len spotrebitelia jedné
 čísla a každé si svoj strop vynucuje samo:
 
 ```
-              rozvrh Family Link (koľko hodín na dnešný deň)
+        týždenný rozvrh v HA (input_number.simona_rozvrh_po … _ne)
                               │
                     00:05 ─── ▼ ────────────────────────┐
                     input_number.simona_rozpocet_dnes = R│
@@ -38,15 +39,45 @@ Family Link **nemá verejné API**, ale integrácia
 [noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink) hovorí s tými
 istými internými endpointmi ako appka. Kľúčové je, že `familylink.set_daily_limit`
 posiela `timeLimitOverrides:batchCreate` — teda **override na dnešný deň**, nie
-prepis týždenného rozvrhu. Rozvrh tak môže zostať zdrojom pravdy a my ho len
-dennodenne prepisujeme. Pre istotu ho o 23:57 vraciame na pôvodnú hodnotu, aby
-po nás v Google nezostal žiadny override.
+prepis týždenného rozvrhu. Týždenný rozvrh v Google tak zostáva nedotknutý a my
+doňho len denne píšeme výnimku. O 23:57 ju vraciame na hodnotu rozvrhu, aby po
+nás nezostal žiadny override.
+
+### Rozvrh je v HA, nie vo Family Link
+
+Týždenný rozvrh sa z Family Link **prečítať nedá**. Integrácia sprístupňuje len
+`appliedTimeLimits`, teda limit platný na dnešný deň — a v tom je už započítaný
+náš vlastný override. `sensor.iplay_50_daily_limit` teda neukazuje rozvrh, ale
+to, čo sme tam sami zapísali. (V zdrojáku integrácie existuje
+`parse_daily_limit_schedule`, ale nikto ju nevolá — je to mŕtvy kód.)
+
+Pôvodne si polnočný reset bral rozpočet práve odtiaľ, a tým si čítal vlastný
+včerajší zvyšok. Rozpočet sa preto deň po dni scvrkával: **180 → 75 → 61**.
+Bola to chyba návrhu na našej strane, nie Family Linku.
+
+Rozvrh preto držíme v HA ako sedem helperov `input_number.simona_rozvrh_po`
+… `_ne`. Nastavené sú podľa rozvrhu v aplikácii:
+
+| Deň | Minút |
+|---|---:|
+| pondelok – piatok | 60 |
+| sobota, nedeľa | 180 |
+
+`sensor.simona_rozvrh_dnes` z nich vyberie dnešnú hodnotu (atribúty `den` a
+`zajtra`), o 00:05 sa ňou naplní rozpočet a o 23:57 sa ňou prepíše aj limit vo
+Family Link.
+
+**Je to kópia, nie zrkadlo.** Keď zmeníš rozvrh v aplikácii Family Link, HA sa
+to nedozvie — treba ho prepísať aj na dashboarde (sekcia *Týždenný rozvrh*).
+Opačne to funguje: hodnota z HA sa do Family Link zapíše sama.
 
 ## Entity
 
 | Entita | Význam |
 |---|---|
-| `input_number.simona_rozpocet_dnes` | Rozpočet na dnes (R) v minútach. O 00:05 sa preberá z rozvrhu Family Link. |
+| `input_number.simona_rozvrh_po` … `_ne` | Týždenný rozvrh: minúty na jednotlivé dni. Kópia rozvrhu z Family Link. |
+| `sensor.simona_rozvrh_dnes` | Koľko minút dáva rozvrh na dnes (atribúty `den`, `zajtra`). |
+| `input_number.simona_rozpocet_dnes` | Rozpočet na dnes (R) v minútach. O 00:05 sa preberá z rozvrhu v HA. |
 | `input_number.simona_pc_pouzite` | Minúty odsedené dnes pri PC. Plní agent. |
 | `input_boolean.simona_zdielany_cas` | Hlavný vypínač. Keď je `off`, HA nezasahuje do ničoho. |
 | `input_boolean.simona_bez_limitu` | Režim bez limitu — kým je zapnutý, čas sa neráta. |
@@ -69,7 +100,7 @@ Píše sa aj priamo:
 
 | Príkaz | Čo urobí |
 |---|---|
-| `/cas` | Prehľad: rozpočet, spotreba po zariadeniach, zostatok, stav PC. |
+| `/cas` | Prehľad: rozvrh na dnes, rozpočet, spotreba po zariadeniach, zostatok, stav PC. |
 | `/cas_add 30` | Pridá 30 min do dnešného rozpočtu (platí pre obe zariadenia). |
 | `/cas_set 120` | Nastaví dnešný rozpočet na 120 min. |
 | `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované, tablet sa zamkne. |
@@ -121,8 +152,9 @@ a zajtrajší rozpočet tým nie je dotknutý.
 
 ## Dashboard v Home Assistante
 
-V bočnom paneli je **Simonka** (`/simonka-cas`) — samostatný dashboard so
-štyrmi sekciami: prehľad spoločného času, rýchle akcie, tablet a počítač.
+V bočnom paneli je **Simonka** (`/simonka-cas`) — samostatný dashboard s
+piatimi sekciami: prehľad spoločného času, rýchle akcie, týždenný rozvrh,
+tablet a počítač.
 
 Zámerne to nie je view v hlavnom *Prehľade* — ten má 205 kB konfigurácie a
 nemá zmysel ho kvôli tomuto prepisovať. Samostatný dashboard nemôže nič
@@ -136,8 +168,9 @@ odovzdať parameter priamo do `input_number.set_value`.
 
 | Súbor | Kam patrí |
 |---|---|
-| `ha/packages/simona_cas.yaml` | `/config/packages/` — účtovanie, prepočty, synchronizácia s Family Link, skripty pre dashboard |
+| `ha/packages/simona_cas.yaml` | `/config/packages/` — rozvrh, účtovanie, prepočty, synchronizácia s Family Link, skripty pre dashboard |
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
+| `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5 |
 | `ha/dashboard/simonka-cas.yaml` | obsah dashboardu (surový editor konfigurácie) |
 | `agent/` | Windows agent (viď `docs/AGENT.md`) |
 
@@ -152,6 +185,8 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
 
 ## Na čo si dať pozor
 
+- **Rozvrh sa mení na dvoch miestach.** Zmena v aplikácii Family Link sa do HA
+  nepremietne (nedá sa odtiaľ vyčítať) — prepíš ho aj na dashboarde.
 - **Denný limit musí byť vo Family Link zapnutý** (`switch.simona_fabriciova_daily_limit`).
   Keď je vypnutý, Google nič nevynucuje a strop tabletu je len číslo.
 - **`switch.iplay_50` má obrátenú logiku, než by si čakal:** `on` znamená
