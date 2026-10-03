@@ -234,6 +234,7 @@ odovzdať parameter priamo do `input_number.set_value`.
 | `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5 |
 | `ha/dashboard/simonka-cas.yaml` | obsah dashboardu (surový editor konfigurácie) |
 | `agent/` | Windows agent (viď `docs/AGENT.md`) |
+| `ha/addons/timelimit/` | `/addons/timelimit/` na HA — lokálny add-on **TimeLimit Server** (self-hostovaná náhrada Family Link, zatiaľ len beží; viď `ha/addons/timelimit/README.md`) |
 
 Do existujúceho `packages/pc_control.yaml` bola pridaná jediná vec — položka
 menu, v oboch blokoch, kde sa hlavné menu skladá:
@@ -243,6 +244,20 @@ menu, v oboch blokoch, kde sa hlavné menu skladá:
 ```
 
 Token agenta je v `secrets.yaml` ako `pc_agent_token`.
+
+## TimeLimit server (príprava odchodu od Google)
+
+Celé zdieľanie času dnes stojí na HAFamilyLink, teda na neoficiálnom API,
+ktoré Google môže kedykoľvek rozbiť. Ako záložná cesta beží v HA lokálny
+add-on **TimeLimit Server** (`local_timelimit`) — self-hostovaný server pre
+open-source rodičovský dohľad [TimeLimit](https://timelimit.io), spolu
+s Mailpitom na prihlasovacie kódy. API je na `http://192.168.1.102:8080`,
+maily na `http://192.168.1.102:8025`, databáza v add-one MariaDB.
+
+**Simonkin tablet ostáva na Family Linku.** Server zatiaľ len beží a čaká na
+test na náhradnom zariadení; napojenie na zdieľaný rozpočet nie je urobené.
+Podrobnosti, obídené chyby v oficiálnom image a ďalšie kroky sú v
+`ha/addons/timelimit/README.md`.
 
 ## Na čo si dať pozor
 

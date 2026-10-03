@@ -1,0 +1,29 @@
+configuration:
+  db_host:
+    name: MariaDB – hostiteľ
+    description: Pre add-on MariaDB nechaj core-mariadb.
+  db_port:
+    name: MariaDB – port
+  db_name:
+    name: Databáza
+    description: Musí byť v add-one MariaDB v zozname databases.
+  db_user:
+    name: Používateľ databázy
+    description: Musí byť v add-one MariaDB v logins a rights.
+  db_password:
+    name: Heslo do databázy
+    description: To isté, čo je v add-one MariaDB pri tomto používateľovi.
+  mail_sender:
+    name: Odosielateľ mailov
+    description: Adresa, z ktorej chodia prihlasovacie kódy (nikam von nejdú, končia v Mailpite).
+  always_pro:
+    name: Prémiové funkcie odomknuté
+    description: Na vlastnom serveri nemá zmysel nič platiť.
+  disable_signup:
+    name: Zakázať zakladanie nových rodín
+    description: Zapni, keď už rodina existuje – nikto cudzí si na serveri nič nezaloží.
+  mailpit_max_messages:
+    name: Mailpit – koľko správ držať
+network:
+  8080/tcp: TimeLimit API – sem sa pripája appka (vlastný server)
+  8025/tcp: Mailpit – web s prihlasovacími kódmi

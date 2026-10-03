@@ -1,0 +1,39 @@
+# Home Assistant local add-on: TimeLimit.io server + Mailpit
+# Nahrada za LXC 123 na pve - server bezi priamo v HA ako add-on.
+name: "TimeLimit Server"
+version: "1.17.0-1"
+slug: "timelimit"
+description: "Self-hostovaný TimeLimit.io server (rodičovský dohľad) + Mailpit na prihlasovacie kódy. DB v add-one MariaDB."
+url: "https://gitlab.com/timelimit.io/timelimit-server-2018"
+arch:
+  - amd64
+init: false
+startup: services
+boot: auto
+watchdog: "http://[HOST]:[PORT:8080]/time"
+ports:
+  8080/tcp: 8080
+  8025/tcp: 8025
+ports_description:
+  8080/tcp: "TimeLimit API – sem sa pripája appka (vlastný server)"
+  8025/tcp: "Mailpit – web s prihlasovacími kódmi, ktoré server posiela rodičovi"
+options:
+  db_host: "core-mariadb"
+  db_port: 3306
+  db_name: "timelimit"
+  db_user: "timelimit"
+  db_password: ""
+  mail_sender: "timelimit@fabrici.xyz"
+  always_pro: true
+  disable_signup: false
+  mailpit_max_messages: 1000
+schema:
+  db_host: str
+  db_port: port
+  db_name: str
+  db_user: str
+  db_password: password
+  mail_sender: str
+  always_pro: bool
+  disable_signup: bool
+  mailpit_max_messages: int(10,100000)
