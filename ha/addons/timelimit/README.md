@@ -12,8 +12,9 @@ ostáva na Family Linku, kým sa TimeLimit neoverí na náhradnom zariadení.
 | | |
 |---|---|
 | Add-on | `local_timelimit` (TimeLimit Server), súbory v `/addons/timelimit/` na HA |
-| API | `http://192.168.1.102:8080` — overenie: `curl .../time` vráti `{"ms":…}` |
-| Maily | `http://192.168.1.102:8025` (Mailpit) |
+| API verejne | **`https://timelimit.fabrici.xyz`** — cez Caddy (LXC 116), bez VPN; toto zadávaš v appke ako vlastný server |
+| API na LAN | `http://192.168.1.102:8080` — overenie: `curl .../time` vráti `{"ms":…}` |
+| Maily | `http://192.168.1.102:8025` (Mailpit) — **len LAN/VPN**, von sa nevystavuje |
 | Databáza | add-on **MariaDB** (`core-mariadb`), databáza a používateľ `timelimit` |
 | Dáta | `/data/mailpit.db` v add-one; všetko ostatné je v MariaDB |
 
@@ -31,6 +32,31 @@ skončí — Supervisor (watchdog na `/time`) ho reštartuje.
 Mailpit má v HTML absolútne cesty (`/dist/app.js`, `data-webroot="/"`) a
 Supervisor pri ingresse prefix odstrihne, takže by sa assety nenačítali.
 `MP_WEBROOT` by zas rozbil priamy prístup na porte 8025. Ostáva teda port.
+
+## Verejný prístup a kto sa smie prihlásiť
+
+Appka na telefóne musí server dosiahnuť aj mimo domu, preto je
+`timelimit.fabrici.xyz` v Caddy (LXC 116, `/etc/caddy/Caddyfile`) ako
+**verejný** host bez `gate`, reverse proxy na `192.168.1.102:8080`. Wildcard
+certifikát `*.fabrici.xyz` aj DNS už existovali, pridal sa len `handle` blok.
+Overené zvonku (z cloudu): `GET /time` → 200, Let's Encrypt.
+
+Aby si na verejnom serveri nikto cudzí nič nezaložil, server posiela
+prihlasovacie kódy **len adresám z whitelistu** (`mail_whitelist` v options →
+`MAIL_WHITELIST`). Položka bez `@` je doména, s `@` celá adresa. Nastavené je
+`fabrici.xyz`, takže v appke zadaj **ľubovoľnú adresu @fabrici.xyz** — maily
+aj tak končia v Mailpite, nikam sa nedoručujú. Cudzia adresa dostane
+`{"mailAddressNotWhitelisted":true}` a mail sa nepošle. Ďalšie adresy
+(napr. gmail) dopíš do options.
+
+`disable_signup` ostáva vypnuté, kým rodina nevznikne — zapnuté by
+zablokovalo aj tvoju prvú registráciu. Po založení rodiny ho zapni.
+
+Overený celý tok cez verejnú URL: `send-mail-login-code-v2` → kód v Mailpite →
+`sign-in-by-mail-code` vráti `mailAuthToken`; zlý kód vráti 403.
+
+Mailpit (kódy) sa von nevystavuje. Kód si prečítaš doma alebo cez headscale
+VPN; registrácia je jednorazová vec.
 
 ## Databáza
 
@@ -84,13 +110,12 @@ Kópia v repe a na HA majú mať rovnaký md5.
 
 1. **Test na náhradnom zariadení** (starý telefón, *nie* Simonkin tablet):
    nainštalovať [TimeLimit z F-Droidu](https://f-droid.org/en/packages/io.timelimit.android.aosp.direct/),
-   pri nastavení zvoliť vlastný server `http://192.168.1.102:8080`, založiť
-   rodinu, prihlasovací kód prečítať v Mailpite.
-2. Po založení rodiny zapnúť `disable_signup`, nech si na serveri nikto cudzí
-   nič nezaloží.
-3. Ak má appka fungovať aj mimo domu: pridať `timelimit.fabrici.xyz` do Caddy
-   (LXC 116) smerujúce na `192.168.1.102:8080`, alebo ísť cez headscale VPN.
-4. Overiť, či limity a blokovanie fungujú tak, ako treba — až potom riešiť
+   pri nastavení zvoliť vlastný server **`https://timelimit.fabrici.xyz`**,
+   zadať adresu `@fabrici.xyz`, kód prečítať v Mailpite
+   (`http://192.168.1.102:8025`), založiť rodinu. Serverová strana tohto toku
+   je overená cez API, chýba len fyzický telefón.
+2. Po založení rodiny zapnúť `disable_signup` v options add-onu.
+3. Overiť, či limity a blokovanie fungujú tak, ako treba — až potom riešiť
    napojenie na zdieľaný rozpočet v HA.
 
 ## Napojenie na Home Assistant (zatiaľ neurobené)

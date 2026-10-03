@@ -251,8 +251,11 @@ Celé zdieľanie času dnes stojí na HAFamilyLink, teda na neoficiálnom API,
 ktoré Google môže kedykoľvek rozbiť. Ako záložná cesta beží v HA lokálny
 add-on **TimeLimit Server** (`local_timelimit`) — self-hostovaný server pre
 open-source rodičovský dohľad [TimeLimit](https://timelimit.io), spolu
-s Mailpitom na prihlasovacie kódy. API je na `http://192.168.1.102:8080`,
-maily na `http://192.168.1.102:8025`, databáza v add-one MariaDB.
+s Mailpitom na prihlasovacie kódy. API je verejne na
+`https://timelimit.fabrici.xyz` (cez Caddy, bez VPN — appka ho potrebuje aj
+mimo domu), na LAN `http://192.168.1.102:8080`; maily len na LAN na
+`http://192.168.1.102:8025`; databáza v add-one MariaDB. Prihlasovacie kódy
+server pošle len adresám `@fabrici.xyz`, nikto cudzí si rodinu nezaloží.
 
 **Simonkin tablet ostáva na Family Linku.** Server zatiaľ len beží a čaká na
 test na náhradnom zariadení; napojenie na zdieľaný rozpočet nie je urobené.

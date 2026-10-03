@@ -10,6 +10,10 @@ opt() {
 yesno() {
     if [ "$(opt "$1")" = "true" ]; then echo yes; else echo no; fi
 }
+# zoznam z options ako "a,b,c" (server cita MAIL_WHITELIST oddeleny ciarkami)
+optlist() {
+    node -e 'const o=require(process.argv[1]);const v=o[process.argv[2]];process.stdout.write(Array.isArray(v)?v.join(","):"")' "$OPTIONS" "$1"
+}
 
 DB_HOST="$(opt db_host)"
 DB_PORT="$(opt db_port)"
@@ -32,6 +36,10 @@ export MAIL_SENDER="$(opt mail_sender)"
 export MAIL_TRANSPORT='{"host":"127.0.0.1","port":1025,"secure":false,"ignoreTLS":true}'
 export ALWAYS_PRO="$(yesno always_pro)"
 export DISABLE_SIGNUP="$(yesno disable_signup)"
+# Komu vobec posielat prihlasovacie kody: domena (bez @) alebo cela adresa.
+# Prazdny zoznam = komukolvek. Server je verejne na timelimit.fabrici.xyz,
+# tak nech si cudzi nevie ani vyziadat kod.
+export MAIL_WHITELIST="$(optlist mail_whitelist)"
 
 echo "[timelimit] cakam na MariaDB ${DB_HOST}:${DB_PORT}"
 i=0

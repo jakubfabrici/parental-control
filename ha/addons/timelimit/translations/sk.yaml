@@ -22,6 +22,9 @@ configuration:
   disable_signup:
     name: Zakázať zakladanie nových rodín
     description: Zapni, keď už rodina existuje – nikto cudzí si na serveri nič nezaloží.
+  mail_whitelist:
+    name: Povolené mailové adresy
+    description: Domény (bez @) alebo celé adresy, ktorým server pošle prihlasovací kód. Prázdne = komukoľvek.
   mailpit_max_messages:
     name: Mailpit – koľko správ držať
 network:
