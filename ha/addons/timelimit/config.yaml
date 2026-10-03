@@ -1,7 +1,7 @@
 # Home Assistant local add-on: TimeLimit.io server + Mailpit
 # Nahrada za LXC 123 na pve - server bezi priamo v HA ako add-on.
 name: "TimeLimit Server"
-version: "1.17.0-7"
+version: "1.17.0-8"
 slug: "timelimit"
 description: "Self-hostovaný TimeLimit.io server (rodičovský dohľad) + Mailpit na kódy + most do HA cez MQTT. DB v add-one MariaDB."
 url: "https://gitlab.com/timelimit.io/timelimit-server-2018"

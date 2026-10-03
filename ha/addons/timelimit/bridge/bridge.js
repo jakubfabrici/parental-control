@@ -581,6 +581,24 @@ async function setLimitToday(cats, minutes) {
 //   extra = max(0, (T - pouzite) - max(0, cap - pouzite))
 // Zvysok pre appku je potom max(0, cap - pouzite) + extra = T - pouzite.
 // Rucny extra cas a strop z dashboardu sa pri aktivnom cieli prepisu.
+//
+// Setrenie baterky tabletu: kazdy push na server znamena "should sync" pre
+// tablet (websocket) a ten sa hned synchronizuje. Ked sedi pri PC, ciel
+// klesa kazdu minutu - posielat to kazdu minutu by tablet budilo zbytocne.
+// Preto: uvolnenie (rodic pridal cas) ide hned; sprisnenie sa posiela az
+// ked narastie aspon na TARGET_STEP minut, a ked tabletu zostava menej nez
+// TARGET_EXACT minut, ide presne. Tablet tak nikdy neprekroci spolocny
+// rozpocet, len sa dozvie o spotrebe na PC po 5-minutovych krokoch.
+const TARGET_STEP = 5 * MINUTE;
+const TARGET_EXACT = 15 * MINUTE;
+
+function worthSending(want, have, remainingAfter) {
+    if (want === have) return false;
+    if (want > have) return true;                       // uvolnenie: hned
+    if (remainingAfter <= TARGET_EXACT) return true;    // koniec: presne
+    return (have - want) >= TARGET_STEP;                // inak po krokoch
+}
+
 async function enforceTargets() {
     const actions = [];
     for (const [categoryId, tgt] of Object.entries(state.targets || {})) {
@@ -601,12 +619,17 @@ async function enforceTargets() {
         // pravidlo HA: netreba, ked strop appky uz staci (T >= appCap)
         const wantRuleMin = (appCap !== null && T >= appCap) ? null : Math.round(cap / MINUTE);
         const haveRuleMin = haRule ? Math.round(haRule.maxTime / MINUTE) : null;
+        const remainingAfter = T - used;
         if (wantRuleMin !== haveRuleMin) {
-            actions.push(...actLimitToday(cat, wantRuleMin === null ? 1440 : wantRuleMin, bit));
+            // bez pravidla HA = strop appky (alebo nekonecno)
+            const asMs = (m) => (m === null ? (appCap === null ? Infinity : appCap) : m * MINUTE);
+            if (worthSending(asMs(wantRuleMin), asMs(haveRuleMin), remainingAfter)) {
+                actions.push(...actLimitToday(cat, wantRuleMin === null ? 1440 : wantRuleMin, bit));
+            }
         }
         const wantExtra = Math.max(0, (T - used) - Math.max(0, cap - used));
         const haveExtra = extraTodayMs(cat, today);
-        if (Math.abs(wantExtra - haveExtra) >= MINUTE) {
+        if (Math.abs(wantExtra - haveExtra) >= MINUTE && worthSending(wantExtra, haveExtra, remainingAfter)) {
             actions.push({ type: 'SET_CATEGORY_EXTRA_TIME', categoryId, newExtraTime: Math.round(wantExtra), day: today });
         }
         tgt.applied = { rule_min: wantRuleMin, extra_min: Math.round(wantExtra / MINUTE), used_min: Math.round(used / MINUTE) };
@@ -727,7 +750,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-7', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-8', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;

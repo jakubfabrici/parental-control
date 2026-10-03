@@ -164,6 +164,14 @@ Overené: rozpočet 180 / PC 32 → strop 148; +15 → 163; rozpočet 240 → li
 (vypnuté zdieľanie alebo prepnutie na Family Link) pravidlo HA aj extra čas
 uprace a platí len rozvrh appky (1 h / 3 h).
 
+**Baterka tabletu:** synchronizácia mosta (`sync_interval`, 60 s) beží len
+medzi HA a serverom, tablet nebudí. Tablet zobudí až push zmeny — server mu
+vtedy pošle „should sync" cez websocket. Preto sa sprísnenie stropu (PC
+ujedá z rozpočtu) posiela po **5-minútových krokoch** a presne až v
+posledných **15 minútach** tabletu; uvoľnenie (pridaný čas) ide hneď. Pri
+sedení za PC to je ping každých ~5 minút namiesto každej minúty a tablet
+spoločný rozpočet aj tak nikdy neprekročí.
+
 Pri aktívnom cieli most prepisuje ručný strop a extra čas kategórie — čas sa
 pridáva cez spoločný rozpočet (`script.simona_cas_pridaj`), ako doteraz.
 
