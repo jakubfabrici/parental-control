@@ -225,6 +225,13 @@ Tlačidlá volajú skripty (`simona_cas_pridaj`, `simona_cas_nastav`,
 `simona_cas_ukonci`, `simona_pc_prikaz`), lebo karta typu *button* nevie
 odovzdať parameter priamo do `input_number.set_value`.
 
+Sekcia **Tablet** beží nad TimeLimit, nie nad Family Linkom: stav a
+zostatok, strop a extra čas na dnes, zablokovanie (aj na 30 min), bez
+limitu, rozpis po kategóriách, správa **vždy povolených aplikácií** a stav
+mostu. Entity Family Link (`iplay_50_*`, `switch.iplay_50`) z dashboardu
+zmizli; spoločný čas hore stále počíta tablet z Family Linku, kým sa
+neprepne `simona_cas.yaml`.
+
 ## Súbory
 
 | Súbor | Kam patrí |

@@ -104,12 +104,31 @@ Zariadenie **TimeLimit – <dieťa>** pre každé dieťa:
 | `number.…_extra_cas_dnes` | extra čas na dnes pre vrcholové kategórie (`SET_CATEGORY_EXTRA_TIME`) |
 | `number.…_strop_na_dnes` | strop na dnes — vlastné pravidlo HA (viď nižšie) |
 | `…_<kategória>_…` | to isté per kategória (použité, zablokované, extra, strop) |
+| `sensor.…_vzdy_povolene_aplikacie`, `select.…`, `text.…` | vždy povolené aplikácie (viď nižšie) |
 
 Generický príkaz na `timelimit/cmd` (JSON): `sync`, `block`/`unblock`
 (`child`/`category`, `minutes`), `add_time`, `set_extra`, `set_limit`,
 `no_limits` (`on`, `minutes`), `add_child`, `add_category`, `enroll`, `raw`
-(`actions: [{type, …}]` – únikový východ na ľubovoľnú rodičovskú akciu).
+(`actions: [{type, …}]` – únikový východ na ľubovoľnú rodičovskú akciu),
+`allow_app` / `disallow_app` (`child`, `package`).
 Chyby idú na `timelimit/bridge/error` a do logu add-onu.
+
+### Vždy povolené aplikácie
+
+„Vždy povolené" je kategória v appke bez časových pravidiel (option
+`always_allowed_category`, predvolene `Allowed Apps`). Pridať aplikáciu =
+presunúť jej balík do tejto kategórie (`ADD_CATEGORY_APPS` balík zároveň
+odoberie z ostatných kategórií dieťaťa). Odobrať = vrátiť balík do jedinej
+ďalšej vrcholovej kategórie (u Simonky „Allowed games"), aby nezostal
+nepriradený a appka ho nezačala blokovať.
+
+Zoznam nainštalovaných aplikácií posiela tablet na server **šifrovane**
+(`EncryptedAppLists`), most ho prečítať nevie. Vidí len balíky už
+priradené do kategórií, preto sú v HA tri entity:
+`select.…_pridat_medzi_vzdy_povolene` (balíky z ostatných kategórií),
+`select.…_odobrat_z_vzdy_povolenych` a `text.…_pridat_balik_medzi_vzdy_povolene`
+na úplne nový balík menom. Zoznamy sú v atribútoch
+`sensor.…_vzdy_povolene_aplikacie`. Overené tam aj späť na testovacom balíku.
 
 ### Strop na dnes a pravidlá appky
 
