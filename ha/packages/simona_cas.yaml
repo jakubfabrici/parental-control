@@ -34,6 +34,16 @@
 # radsej ziadny zasah nez omylom nastaveny limit 0.
 # ============================================================================
 
+# Odkial berieme minuty a kam piseme strop tabletu. Prva moznost je
+# predvolena pri prvom vytvoreni; potom si HA pamata poslednu volbu.
+input_select:
+  simona_tablet_zdroj:
+    name: Simona tablet – zdroj
+    icon: mdi:tablet-cellphone
+    options:
+      - TimeLimit
+      - Family Link
+
 input_boolean:
   simona_zdielany_cas:
     name: Simona zdieľaný čas
@@ -283,15 +293,39 @@ template:
   - sensor:
       # Skutocne minuty na tablete dnes. Family Link ich rata sam, my ich len
       # citame - su nezavisle od toho, ako prave posuvame denny limit.
+      # Surove minuty tabletu dnes zo zvoleneho zdroja (pred odpocitanim
+      # nezapocitanych). Pri TimeLimit len kategoria s limitom - Allowed Apps
+      # su povolene stale a do spolocneho casu sa nerataju.
+      - name: Simona tablet namerané
+        unique_id: simona_tablet_namerane
+        unit_of_measurement: min
+        device_class: duration
+        state_class: measurement
+        icon: mdi:tablet
+        availability: >-
+          {% if is_state('input_select.simona_tablet_zdroj', 'TimeLimit') %}
+          {{ has_value('sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes') }}
+          {% else %}
+          {{ has_value('sensor.iplay_50_screen_time_remaining') }}
+          {% endif %}
+        state: >-
+          {% if is_state('input_select.simona_tablet_zdroj', 'TimeLimit') %}
+          {{ states('sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes') | int(0) }}
+          {% else %}
+          {{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}
+          {% endif %}
+        attributes:
+          zdroj: "{{ states('input_select.simona_tablet_zdroj') }}"
+
       - name: Simona tablet použité
         unique_id: simona_tablet_pouzite
         unit_of_measurement: min
         device_class: duration
         state_class: measurement
         icon: mdi:tablet
-        availability: "{{ has_value('sensor.iplay_50_screen_time_remaining') }}"
+        availability: "{{ has_value('sensor.simona_tablet_namerane') }}"
         state: >-
-          {% set raw = state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) %}
+          {% set raw = states('sensor.simona_tablet_namerane') | int(0) %}
           {% set off = states('input_number.simona_offset_tablet') | int(0) %}
           {% set snap = states('input_number.simona_snap_tablet') | int(-1) %}
           {% if is_state('input_boolean.simona_bez_limitu', 'on') and snap >= 0 %}
@@ -300,7 +334,7 @@ template:
           {{ [ raw - off, 0 ] | max }}
           {% endif %}
         attributes:
-          namerane: "{{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}"
+          namerane: "{{ states('sensor.simona_tablet_namerane') | int(0) }}"
           nezapocitane: "{{ states('input_number.simona_offset_tablet') | int(0) }}"
 
       # Kolko minut ma rozvrh na dnesny (a zajtrajsi) den. now().weekday()
@@ -329,7 +363,7 @@ template:
         icon: mdi:wallet-plus-outline
         state: >-
           {{ (states('input_number.simona_rozpocet_dnes') | int(0))
-             + (states('sensor.iplay_50_active_bonus') | int(0)) }}
+             + ((states('sensor.iplay_50_active_bonus') | int(0)) if is_state('input_select.simona_tablet_zdroj', 'Family Link') else 0) }}
 
       # To iste pre PC: agent hlasi namerane minuty, my z nich odpocitame
       # tie, ktore padli do rezimu "bez limitu".
@@ -450,6 +484,7 @@ automation:
         at: "00:05:00"
     actions:
       - action: homeassistant.update_entity
+        continue_on_error: true
         target:
           entity_id:
             - sensor.iplay_50_daily_limit
@@ -528,6 +563,9 @@ automation:
       - trigger: state
         entity_id: sensor.iplay_50_daily_limit
     conditions:
+      - condition: state
+        entity_id: input_select.simona_tablet_zdroj
+        state: Family Link
       # Prechody cez unknown/unavailable (restart HA, vypadok Google) nie su
       # zmena rozvrhu.
       - condition: template
@@ -598,7 +636,7 @@ automation:
           entity_id: input_number.simona_snap_tablet
         data:
           value: >-
-            {{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}
+            {{ states('sensor.simona_tablet_namerane') | int(0) }}
       - action: input_number.set_value
         target:
           entity_id: input_number.simona_snap_pc
@@ -628,7 +666,7 @@ automation:
           entity_id: input_number.simona_offset_tablet
         data:
           value: >-
-            {% set raw = state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) %}
+            {% set raw = states('sensor.simona_tablet_namerane') | int(0) %}
             {% set snap = states('input_number.simona_snap_tablet') | int(0) %}
             {{ [ (states('input_number.simona_offset_tablet') | int(0)) + [ raw - snap, 0 ] | max, 1440 ] | min }}
       - action: input_number.set_value
@@ -648,6 +686,56 @@ automation:
         data:
           value: -1
 
+  # -- Strop tabletu cez TimeLimit --------------------------------------------
+  # HA posle mostu "cielovy cas na dnes" = sensor.simona_tablet_cielovy_limit.
+  # Most ho drzi (aj cez restart) a pri kazdej synchronizacii premieta do
+  # vlastneho pravidla HA (strop appky zvysit nevie) a extra casu (to, co je
+  # nad strop appky). Posielame pri zmene a raz za 5 minut pre istotu.
+  - id: simona_cas_sync_tabletu_timelimit
+    alias: "Simona čas: strop tabletu cez TimeLimit"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id:
+          - sensor.simona_tablet_cielovy_limit
+          - input_select.simona_tablet_zdroj
+          - input_boolean.simona_zdielany_cas
+      - trigger: time_pattern
+        minutes: "/5"
+    conditions:
+      - condition: state
+        entity_id: input_select.simona_tablet_zdroj
+        state: TimeLimit
+      - condition: template
+        value_template: "{{ has_value('sensor.simona_tablet_cielovy_limit') }}"
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: timelimit/cmd
+          payload: >-
+            {% if is_state('input_boolean.simona_zdielany_cas', 'on') %}
+            {{ {'action': 'set_total', 'child': 'Simonka', 'category': 'Ostatné aplikácie',
+                'minutes': states('sensor.simona_tablet_cielovy_limit') | int(0)} | to_json }}
+            {% else %}
+            {{ {'action': 'clear_total', 'child': 'Simonka', 'category': 'Ostatné aplikácie'} | to_json }}
+            {% endif %}
+
+  # Pri prepnuti spat na Family Link cielovy cas v TimeLimit zrusime.
+  - id: simona_cas_timelimit_uvolnit
+    alias: "Simona čas: uvoľniť strop v TimeLimit"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: input_select.simona_tablet_zdroj
+        to: Family Link
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: timelimit/cmd
+          payload: >-
+            {{ {'action': 'clear_total', 'child': 'Simonka', 'category': 'Ostatné aplikácie'} | to_json }}
+
   # -- Prepocet stropu pre tablet --------------------------------------------
   # Bezi po kazdej zmene spotreby. Google API volame len ked sa cielova
   # hodnota naozaj lisi od aktualnej, aby sme ho nebombardovali.
@@ -664,6 +752,9 @@ automation:
       - trigger: time_pattern
         minutes: "/5"
     conditions:
+      - condition: state
+        entity_id: input_select.simona_tablet_zdroj
+        state: Family Link
       - condition: state
         entity_id: input_boolean.simona_zdielany_cas
         state: "on"
@@ -901,6 +992,9 @@ automation:
       - trigger: time
         at: "23:57:00"
     conditions:
+      - condition: state
+        entity_id: input_select.simona_tablet_zdroj
+        state: Family Link
       - condition: template
         value_template: >-
           {{ has_value('sensor.iplay_50_daily_limit')

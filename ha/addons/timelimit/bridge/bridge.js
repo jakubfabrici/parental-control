@@ -67,6 +67,7 @@ const emptyState = () => ({
     categories: {},   // id -> { base, rules, usedTimes, apps }
     published: {},    // discovery topic -> true (aby sa dali odstranit)
     haRules: {},      // categoryId -> ruleId pravidla "strop na dnes", ktore vlastni HA
+    targets: {},      // categoryId -> { day, minutes } "cielovy cas na dnes" zo zdielaneho rozpoctu
     lastSync: 0
 });
 
@@ -373,8 +374,8 @@ function usedOnDayMs(cat, day) {
 
 // kolko minut dnes dovoluju pravidla (minimum) a kolko z toho zostava;
 // null = ziadne pravidlo na cely den
-function limitsToday(cat, today, bit, extra) {
-    const rules = fullDayRulesToday(cat, bit);
+function limitsToday(cat, today, bit, extra, skipRuleId) {
+    const rules = fullDayRulesToday(cat, bit).filter((r) => r.id !== skipRuleId);
     if (rules.length === 0) return { limit: null, remaining: null };
     const usedToday = usedOnDayMs(cat, today);
     const monday = weekStart(today, bit);
@@ -414,12 +415,13 @@ function categorySummary(cat, now) {
         remaining_min: remaining === null ? null : Math.round(remaining / MINUTE),
         blocked: isBlocked(cat, now),
         blocked_until: cat.base.tempBlockTime || 0,
-        rules: (cat.rules || []).length
+        rules: (cat.rules || []).length,
+        target: (state.targets || {})[cat.base.categoryId] || null
     };
 }
 
 function childSummary(child, now) {
-    const tops = topCatsOf(child.id).map((c) => categorySummary(c, now));
+    const tops = limitedTopCatsOf(child.id).map((c) => categorySummary(c, now));
     const all = catsOf(child.id).map((c) => categorySummary(c, now));
     const withLimit = tops.filter((c) => c.limit_min !== null);
     return {
@@ -430,7 +432,8 @@ function childSummary(child, now) {
         limit_min: withLimit.length ? Math.min(...withLimit.map((c) => c.limit_min)) : null,
         remaining_min: withLimit.length ? Math.min(...withLimit.map((c) => c.remaining_min)) : null,
         extra_min: tops.length ? Math.max(...tops.map((c) => c.extra_min)) : 0,
-        blocked: tops.length > 0 && tops.every((c) => c.blocked),
+        // zablokovanie dietata = vsetky vrcholove kategorie vratane Allowed Apps
+        blocked: (() => { const all = topCatsOf(child.id); return all.length > 0 && all.every((c) => isBlocked(c, now)); })(),
         no_limits: !!(child.disableLimitsUntil && child.disableLimitsUntil > now),
         no_limits_until: child.disableLimitsUntil || 0,
         categories: all
@@ -458,6 +461,14 @@ function appsSummary(child) {
         other_apps: others,
         unassigned_category: (() => { const c = state.categories[child.categoryForNotAssignedApps]; return c ? c.base.title : null; })()
     };
+}
+
+// Vrcholove kategorie s limitom = vsetky okrem "vzdy povolenych". Prikazy na
+// urovni dietata (extra cas, strop, cielovy cas) idu len sem - inak by strop
+// obmedzil aj Allowed Apps.
+function limitedTopCatsOf(childId) {
+    const allowed = alwaysAllowedCatOf(childId);
+    return topCatsOf(childId).filter((c) => !allowed || c.base.categoryId !== allowed.base.categoryId);
 }
 
 async function addAlwaysAllowed(child, packageName) {
@@ -562,6 +573,67 @@ async function setLimitToday(cats, minutes) {
     if (actions.length > 0) await pushActions(actions);
 }
 
+// "Cielovy cas na dnes" (zdielany rozpocet s PC): HA povie, kolko minut smie
+// kategoria dnes CELKOVO (T). Pravidla appky su strop, ktory HA zvysit nevie,
+// preto: vlastne pravidlo HA = min(T, strop appky) a co je nad strop appky,
+// doplni extra cas. Extra cas appka pri pouzivani odpocitava, takze ho most
+// pri kazdej synchronizacii dorovna na presny zvysok:
+//   extra = max(0, (T - pouzite) - max(0, cap - pouzite))
+// Zvysok pre appku je potom max(0, cap - pouzite) + extra = T - pouzite.
+// Rucny extra cas a strop z dashboardu sa pri aktivnom cieli prepisu.
+async function enforceTargets() {
+    const actions = [];
+    for (const [categoryId, tgt] of Object.entries(state.targets || {})) {
+        const cat = state.categories[categoryId];
+        if (!cat) { delete state.targets[categoryId]; continue; }
+        const child = userById(cat.base.childId);
+        const tz = timeZoneOf(child);
+        const now = Date.now();
+        const today = epochDay(now, tz);
+        if (tgt.day !== today) { delete state.targets[categoryId]; continue; }
+        const bit = dayBit(now, tz);
+        const T = Math.min(1440, Math.max(0, tgt.minutes)) * MINUTE;
+        const used = usedTodayMs(cat, today);
+        const haRule = haRuleOf(cat);
+        const app = limitsToday(cat, today, bit, 0, haRule ? haRule.id : undefined);
+        const appCap = app.limit;                       // ms alebo null
+        const cap = appCap === null ? T : Math.min(T, appCap);
+        // pravidlo HA: netreba, ked strop appky uz staci (T >= appCap)
+        const wantRuleMin = (appCap !== null && T >= appCap) ? null : Math.round(cap / MINUTE);
+        const haveRuleMin = haRule ? Math.round(haRule.maxTime / MINUTE) : null;
+        if (wantRuleMin !== haveRuleMin) {
+            actions.push(...actLimitToday(cat, wantRuleMin === null ? 1440 : wantRuleMin, bit));
+        }
+        const wantExtra = Math.max(0, (T - used) - Math.max(0, cap - used));
+        const haveExtra = extraTodayMs(cat, today);
+        if (Math.abs(wantExtra - haveExtra) >= MINUTE) {
+            actions.push({ type: 'SET_CATEGORY_EXTRA_TIME', categoryId, newExtraTime: Math.round(wantExtra), day: today });
+        }
+        tgt.applied = { rule_min: wantRuleMin, extra_min: Math.round(wantExtra / MINUTE), used_min: Math.round(used / MINUTE) };
+    }
+    if (actions.length > 0) {
+        log('ciel na dnes: posielam', actions.map((a) => a.type).join(','));
+        await pushActions(actions);
+        await pull();
+    }
+}
+
+async function setTarget(cats, minutes) {
+    if (cats.length === 0) throw new Error('ziadna kategoria');
+    for (const cat of cats) {
+        const child = userById(cat.base.childId);
+        const today = epochDay(Date.now(), timeZoneOf(child));
+        if (minutes === null || minutes === undefined || !(Number(minutes) >= 0)) {
+            delete state.targets[cat.base.categoryId];
+        } else {
+            state.targets = state.targets || {};
+            state.targets[cat.base.categoryId] = { day: today, minutes: Math.round(Number(minutes)) };
+        }
+    }
+    saveState();
+    await enforceTargets();
+}
+
 // Strop plati len na dnes: po polnoci by pravidlo HA s vcerajsim dnom platilo
 // o tyzden znova, tak ho most pri synchronizacii zmaze. Zmaze aj zaznamy
 // o pravidlach, ktore uz na serveri nie su (zmazane v appke).
@@ -643,7 +715,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-5', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-6', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
@@ -851,8 +923,14 @@ async function handleCommand(cmd) {
     }
     const child = findChild(cmd.child);
     const cat = findCategory(cmd.category, child);
-    const target = cat ? [cat] : (child ? topCatsOf(child.id) : []);
+    const target = cat ? [cat] : (child ? limitedTopCatsOf(child.id) : []);
     switch (action) {
+        case 'set_total':
+            await setTarget(target, cmd.minutes);
+            return;
+        case 'clear_total':
+            await setTarget(target, null);
+            return;
         case 'allow_app':
             if (!child) throw new Error('allow_app potrebuje child');
             await addAlwaysAllowed(child, cmd.package);
@@ -919,7 +997,7 @@ async function onMessage(topic, payloadBuf) {
             const cat = kind === 'category' ? findCategory(id) : null;
             if (kind === 'child' && !child) throw new Error('nezname dieta ' + id);
             if (kind === 'category' && !cat) throw new Error('neznama kategoria ' + id);
-            const target = cat ? [cat] : topCatsOf(child.id);
+            const target = cat ? [cat] : limitedTopCatsOf(child.id);
             const on = /^(ON|true|1)$/i.test(payload);
             if (key === 'blocked') {
                 if (cat) await setCategoryBlocked(cat, on); else await setChildBlocked(child, on);
@@ -973,6 +1051,7 @@ async function tick() {
         try {
             await pull();
             await cleanupHaRules();
+            await enforceTargets();
         } catch (e) {
             if (e.status === 401) {
                 warn('server odmietol token (zariadenie bolo odstranene z rodiny?) - prihlasim sa znova');
