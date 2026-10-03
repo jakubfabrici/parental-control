@@ -1,0 +1,5 @@
+# lokalne veci PC, nikdy do repa ani do vydania
+ha-agent/config.json
+*.log
+*.bak*
+*.b64

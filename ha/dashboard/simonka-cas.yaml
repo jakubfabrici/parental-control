@@ -309,10 +309,10 @@ views:
 
           - type: entities
             entities:
-              - entity: binary_sensor.simona_pc_online
-                name: Agent sa hlási
-              - entity: input_boolean.simona_pc_pouziva_sa
+              - entity: binary_sensor.simona_pc_sedi
                 name: Práve pri ňom sedí
+              - entity: binary_sensor.simona_pc_online
+                name: Spojenie s agentom (< 5 min)
               - entity: sensor.simona_pc_zapocitane
                 name: Započítané dnes
               - entity: input_number.simona_pc_pouzite
@@ -323,6 +323,18 @@ views:
                 name: Smie spolu
               - entity: input_datetime.simona_pc_kontakt
                 name: Posledný kontakt
+              - entity: input_datetime.simona_pc_vstup
+                name: Posledný dotyk myši/klávesnice
+              - type: section
+                label: Diagnostika spojenia
+              - entity: input_boolean.simona_pc_pouziva_sa
+                name: Surová vzorka agenta
+              - entity: input_number.simona_pc_latencia
+                name: Latencia tiku (nad 1 s)
+              - entity: input_number.simona_pc_lag_max
+                name: Max meškanie tiku dnes
+              - entity: counter.simona_pc_skok_zamietnuty
+                name: Zamietnuté skoky spotreby
 
           - type: grid
             columns: 2

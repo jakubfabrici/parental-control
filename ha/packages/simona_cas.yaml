@@ -192,6 +192,33 @@ input_number:
     unit_of_measurement: min
     icon: mdi:power-off
 
+  # -- Diagnostika tikov -----------------------------------------------------
+  # Cas od spustenia triggera po navrat rest_command.pc_tick, v sekundach.
+  # Zapisuje sa len nad 1 s: v necinnosti je median 0,02 s, pri hrani 0,51 s
+  # (p95 3,7 s), takze 1 s presne oddeluje normal od anomalie. max 60 je 9x
+  # nad pozorovanym maximom; sablona hodnotu orezava, takze presne 60 znamena
+  # "mimo rozsahu". Orez je povinny - set_value mimo min/max zhodi beh.
+  simona_pc_latencia:
+    name: Simona PC latencia tiku
+    min: 0
+    max: 60
+    step: 0.01
+    mode: box
+    unit_of_measurement: s
+    icon: mdi:timer-outline
+
+  # Najvacsie zmeskanie tiku agenta za dnesok (s). Hlasi ho agent 1.1.0 v poli
+  # lag_max, HA berie maximum z oboch - tik s velkym meskanim casto padne na
+  # timeout a po restarte agenta jeho vlastne maximum zacina od nuly.
+  simona_pc_lag_max:
+    name: Simona PC max meškanie tiku
+    min: 0
+    max: 3600
+    step: 1
+    mode: box
+    unit_of_measurement: s
+    icon: mdi:timer-alert-outline
+
 input_text:
   # Poslednych 5 hodnot, ktore sme zapisali do Family Link, oddelenych
   # ciarkou. Sluzi na rozoznanie vlastnej ozveny od skutocnej zmeny v
@@ -200,6 +227,15 @@ input_text:
     name: Simona posledné zápisy do Family Link
     max: 40
     icon: mdi:pencil-outline
+
+# Kolko po sebe iducich tikov hlasilo spotrebu, ktora sa nedala stihnut.
+# Prvy hodnoverny tik ho vynuluje; po treťom ide sprava do Telegramu.
+counter:
+  simona_pc_skok_zamietnuty:
+    name: Simona PC zamietnuté skoky
+    initial: 0
+    step: 1
+    icon: mdi:shield-alert-outline
 
 input_datetime:
   simona_pc_kontakt:
@@ -212,6 +248,31 @@ input_datetime:
   # ticho rozbil premenovanim.
   simona_pc_upozornenie:
     name: Simona PC posledné upozornenie
+    has_date: true
+    has_time: true
+
+  # Kedy naposledy islo upozornenie "PC sa nehlasi" - vlastne skrtenie, nie
+  # last_triggered (ten sa uz raz ticho rozbil premenovanim).
+  simona_pc_ticho:
+    name: Simona PC posledné upozornenie na ticho
+    has_date: true
+    has_time: true
+
+  # Kedy sa naposledy dotkla mysi alebo klavesnice. Agent 1.1.0 posle idle_sec
+  # a age_sec a HA z nich vyrata cas vstupu; pri starsom agentovi sa znacka
+  # posuva vtedy, ked pribudne napocitana minuta (jediny dokaz pritomnosti,
+  # ktory stary agent dava). Toto je jediny zdroj prezencie.
+  simona_pc_vstup:
+    name: Simona PC posledný vstup
+    has_date: true
+    has_time: true
+
+  # Kedy sme na PC POSLALI prikaz na vypnutie - bez ohladu na to, ci ho PC
+  # potvrdil. Skrti opakovane pokusy. 1970-01-01 znamena "dnes sme neskusali".
+  # Vedome oddelene od simona_pc_snap_vypnutie: ta odteraz znamena vylucne
+  # "PC naozaj zhaslo a od tychto minut ratame tie 3 minuty".
+  simona_pc_vypnutie_pokus:
+    name: Simona PC posledný pokus o vypnutie
     has_date: true
     has_time: true
 
@@ -365,7 +426,9 @@ rest_command:
     url: "http://192.168.1.104:8799/cmd"
     method: POST
     content_type: "application/json"
-    timeout: 8
+    # 20 s, nie 8: agent request dostane, ale pod zatazou odpoveda neskoro
+    # a HA ju zahodi. Tretina periody tiku je bezpecna (mode: single).
+    timeout: 20
     payload: >-
       {"token":"{{ pc_token }}","action":"tick","args":"{{ allowed }}"}
 
@@ -639,11 +702,18 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_zdielany_cas
         state: "on"
+      # ZACHRANNA SIET, nie hlavna cesta. Od verzie agenta 1.2.0 hlasi
+      # agent sam (automatizacia simona_cas_pc_hlasenie nizsie) a tato vetva
+      # sa spusti az vtedy, ked hlasenie nechodi viac nez 150 s - teda ked je
+      # agent stary, zle nastaveny alebo mrtvy.
+      #
       # Ked PC nebezi, skusame ho len raz za pat minut - inak by kazda
       # minuta vypnuteho PC pridala do logu jednu chybu spojenia.
       - condition: template
         value_template: >-
-          {{ is_state('binary_sensor.simona_pc_online', 'on') or now().minute % 5 == 0 }}
+          {% set vek = as_timestamp(now())
+                       - as_timestamp(states('input_datetime.simona_pc_kontakt'), 0) %}
+          {{ vek > 150 and (vek < 600 or now().minute % 5 == 0) }}
     actions:
       - action: rest_command.pc_tick
         continue_on_error: true
@@ -660,7 +730,18 @@ automation:
         target:
           entity_id: input_number.simona_pc_pouzite
         data:
-          value: "{{ [ pc.content.used | int(0), 1440 ] | min }}"
+          # V ramci dna monotonne: pokles znamena, ze agent stratil stav
+          # (state.json po tvrdom vypnuti), nie ze sa cas odsedel spat.
+          # Vynimka su prve minuty po polnoci - agent resetuje o 00:00,
+          # HA az o 00:06.
+          value: >-
+            {% set nove  = pc.content.used | int(0) %}
+            {% set stare = states('input_number.simona_pc_pouzite') | int(0) %}
+            {% if now().hour == 0 and now().minute < 10 %}
+            {{ [ nove, 1440 ] | min }}
+            {% else %}
+            {{ [ [ nove, stare ] | max, 1440 ] | min }}
+            {% endif %}
       - action: input_datetime.set_datetime
         target:
           entity_id: input_datetime.simona_pc_kontakt
@@ -669,6 +750,145 @@ automation:
       - action: "input_boolean.turn_{{ 'on' if pc.content.active | default(false) else 'off' }}"
         target:
           entity_id: input_boolean.simona_pc_pouziva_sa
+
+  # -- Hlasenie z PC (agent 1.2.0 a novsi) ------------------------------------
+  # Obrateny smer: agent posiela sam, HA nic nezahadzuje. Telo hlasenia:
+  #   {"used": 18, "idle_sec": 3, "age_sec": 0, "active": true,
+  #    "allowed": 105, "version": "1.2.0", "needs_seed": false, "lag_max": 0}
+  #
+  # Vsetky zabrany su rovnake ako pri tiku - data z PC su nedoveryhodne v
+  # oboch smeroch a webhook je navyse otvoreny komukolvek v LAN, kto pozna
+  # jeho id. Preto: spotreba len monotonne a len do stropu, ktory sa dal
+  # stihnut; znacka vstupu len z pasma platnych hodnot.
+  - id: simona_cas_pc_hlasenie
+    alias: "Simona čas: hlásenie z PC"
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: webhook
+        webhook_id: !secret simona_pc_webhook
+        allowed_methods:
+          - POST
+        local_only: true
+    conditions:
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
+      - condition: template
+        value_template: "{{ trigger.json is defined and trigger.json.used is defined }}"
+    actions:
+      - variables:
+          novy: >-
+            {{ trigger.json.idle_sec is defined and trigger.json.age_sec is defined }}
+          idle_ok: >-
+            {{ (trigger.json.idle_sec | default(-1) | int(-1)) >= 0
+               and (trigger.json.idle_sec | default(99999) | int(99999)) < 60
+               and (trigger.json.age_sec | default(99999) | int(99999)) < 90 }}
+          nove:  "{{ trigger.json.used | int(-1) }}"
+          stare: "{{ states('input_number.simona_pc_pouzite') | int(0) }}"
+          pred:  "{{ states('input_number.simona_pc_pouzite') | int(-1) }}"
+          rast: "{{ pred >= 0 and (nove | int) > pred }}"
+          sedi_teraz: "{{ idle_ok or ((not novy) and rast) }}"
+          kontakt_ts: "{{ state_attr('input_datetime.simona_pc_kontakt', 'timestamp') | float(0) }}"
+          odstup: >-
+            {{ [ (now().timestamp() - kontakt_ts) | int, 0 ] | max if kontakt_ts > 0 else 86400 }}
+          # Hlasenie chodi kazdych 30 s, takze +2 minuty rezervy staci aj na
+          # jedno vynechane. Druhy strop je "kolko minut dnes vobec ubehlo".
+          strop_skok: "{{ (odstup | int // 60) + 2 }}"
+          strop_dnes: "{{ ((now() - today_at('00:00')).total_seconds() / 60) | int }}"
+          povolene: "{{ [ (stare | int) + (strop_skok | int), strop_dnes | int ] | min }}"
+          hodnoverne: >-
+            {{ (nove | int) >= 0
+               and ( (nove | int) <= (stare | int) or (nove | int) <= (povolene | int) ) }}
+          strop_ha: "{{ states('sensor.simona_pc_povolene') | int(-1) }}"
+          strop_agenta: "{{ trigger.json.allowed | default(-1) | int(-1) }}"
+
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_pc_kontakt
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      # Znacka vstupu PRED spotrebou - automatizacia po limite sa spusta na
+      # zmenu spotreby a musi vidiet uz novu znacku.
+      - if:
+          - condition: template
+            value_template: "{{ sedi_teraz }}"
+        then:
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.simona_pc_vstup
+            data:
+              datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - if:
+          - condition: template
+            value_template: "{{ novy and not idle_ok }}"
+        then:
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.simona_pc_vstup
+            data:
+              datetime: "{{ (now() - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S') }}"
+
+      - action: "input_boolean.turn_{{ 'on' if trigger.json.active | default(false) else 'off' }}"
+        target:
+          entity_id: input_boolean.simona_pc_pouziva_sa
+
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ hodnoverne }}"
+            sequence:
+              - action: input_number.set_value
+                target:
+                  entity_id: input_number.simona_pc_pouzite
+                data:
+                  value: >-
+                    {% if now().hour == 0 and now().minute < 10 %}
+                    {{ [ nove | int, 1440 ] | min }}
+                    {% else %}
+                    {{ [ [ nove | int, stare | int ] | max, 1440 ] | min }}
+                    {% endif %}
+              - if:
+                  - condition: numeric_state
+                    entity_id: counter.simona_pc_skok_zamietnuty
+                    above: 0
+                then:
+                  - action: counter.reset
+                    target:
+                      entity_id: counter.simona_pc_skok_zamietnuty
+        default:
+          - action: counter.increment
+            target:
+              entity_id: counter.simona_pc_skok_zamietnuty
+          - action: system_log.write
+            data:
+              level: warning
+              logger: simona_cas
+              message: >-
+                PC hlasenie: zamietnuty skok pouzite {{ stare }} -> {{ nove }}
+                (odstup {{ odstup }} s, povolene max {{ povolene }})
+
+      # Odpoved smerom k PC. Posiela sa LEN ked sa strop naozaj lisi, takze v
+      # ustalenom stave po sieti nechodi nic. Ked to zlyha, nic sa nedeje -
+      # agent si podrzi posledny znamy strop a my mu ho posleme o 30 s znova.
+      - if:
+          - condition: template
+            value_template: "{{ strop_ha >= 0 and strop_agenta != strop_ha }}"
+        then:
+          - action: rest_command.pc_cmd
+            continue_on_error: true
+            data:
+              action: limit_set
+              args: "{{ strop_ha }}"
+
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.simona_pc_lag_max
+        data:
+          value: >-
+            {{ [ [ states('input_number.simona_pc_lag_max') | int(0),
+                   trigger.json.lag_max | default(0) | int(0) ] | max, 3600 ] | min }}
 
   # -- Vecerne upratanie ------------------------------------------------------
   # Override vratime na hodnotu z ROZVRHU (nie na rozpocet - ten mohol byt
@@ -856,6 +1076,81 @@ automation:
         data:
           variables:
             sprava: "Simonka si zapla počítač napriek tomu, že už ho nemá používať!!! Choď to vyriešiť!!!"
+
+  # -- PC zmizol zo siete -----------------------------------------------------
+  # Bez tohto ostava priznak "pouziva sa" zapnuty aj hodiny po vypnuti PC
+  # (6. 9. od 10:02 do 13:58 UTC, zhaslo to az rucne). Ziadne nove cislo:
+  # je to tych istych 300 s zo senzora "PC online".
+  - id: simona_cas_pc_offline_zhasni
+    alias: "Simona čas: PC offline → zhasnúť používa sa"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.simona_pc_online
+        to: "off"
+    actions:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.simona_pc_pouziva_sa
+
+  # -- PC sa prestal hlasit ---------------------------------------------------
+  # Prah 10 minut stavu offline = 15 minut uplneho ticha (senzor ma vlastnu
+  # 300 s hysterezu). Bezne medzery medzi tikmi su 1-3 minuty, cely restart
+  # po vypadku napajania trval 5 minut ticha. 13. 9. bol PC zapnuty od 14:03
+  # a prvy tik dosiel az 14:25 - tato sprava by bola prisla o 14:15.
+  #
+  # from: "on" je zamerne: celodenne vypnuty PC sedi na "off" a ziadny
+  # prechod nevyrobi, takze nechodi nic.
+  - id: simona_cas_pc_ticho
+    alias: "Simona čas: PC sa prestal hlásiť"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.simona_pc_online
+        from: "on"
+        to: "off"
+        for: "00:10:00"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
+      # Ked sa cas nerata, mlciaci agent nic nestoji.
+      - condition: state
+        entity_id: input_boolean.simona_bez_limitu
+        state: "off"
+      # Dnes sa aspon raz ozval - inak by sprava chodila aj po restarte HA.
+      - condition: template
+        value_template: >-
+          {{ states('input_datetime.simona_pc_kontakt')[:10] == now().strftime('%Y-%m-%d') }}
+      - condition: time
+        after: "07:00:00"
+        before: "21:00:00"
+      # Najviac jedna sprava za hodinu.
+      - condition: template
+        value_template: >-
+          {{ (as_timestamp(now())
+              - as_timestamp(states('input_datetime.simona_pc_ticho'), 0)) > 3600 }}
+    actions:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_pc_ticho
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - variables:
+          ticho: >-
+            {{ ((as_timestamp(now())
+                 - as_timestamp(states('input_datetime.simona_pc_kontakt'), 0)) / 60) | round(0) }}
+      - action: telegram_bot.send_message
+        continue_on_error: true
+        data:
+          chat_id: 5756450012
+          parse_mode: html
+          message: >-
+            ⚠️ <b>Simonkin počítač sa nehlási {{ ticho }} min.</b>
+            Posledný kontakt {{ states('input_datetime.simona_pc_kontakt')[11:16] }},
+            napočítaných {{ states('input_number.simona_pc_pouzite') | int(0) }} min.
+            Buď ho vypla, alebo zamrzol agent (úloha HA-PcAgent na PC). Prehľad: /cas
 
   # -- Upozornenia rodicom ----------------------------------------------------
   - id: simona_cas_varovania
