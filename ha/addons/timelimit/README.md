@@ -118,9 +118,21 @@ Chyby idú na `timelimit/bridge/error` a do logu add-onu.
 „Vždy povolené" je kategória v appke bez časových pravidiel (option
 `always_allowed_category`, predvolene `Allowed Apps`). Pridať aplikáciu =
 presunúť jej balík do tejto kategórie (`ADD_CATEGORY_APPS` balík zároveň
-odoberie z ostatných kategórií dieťaťa). Odobrať = vrátiť balík do jedinej
-ďalšej vrcholovej kategórie (u Simonky „Allowed games"), aby nezostal
-nepriradený a appka ho nezačala blokovať.
+odoberie z ostatných kategórií dieťaťa). Odobrať = balík z kategórie
+vyradiť; nezaradený padne do predvolenej kategórie dieťaťa
+(`categoryForNotAssignedApps`). Keby predvolená nebola nastavená a dieťa
+malo len jednu ďalšiu kategóriu, most ho presunie do nej, aby ho appka
+nezačala úplne blokovať.
+
+**Nastavenie u Simonky (od 2026-10-03):**
+
+| Kategória | Čo v nej je | Pravidlá |
+|---|---|---|
+| Allowed Apps | vybrané aplikácie + `.dummy.system_image` (= všetky nezaradené **systémové** aplikácie) | žiadne – povolené stále |
+| Ostatné aplikácie | predvolená pre všetko nezaradené, teda nesystémové aplikácie | 60 min denne po–pia, 180 min denne so–ne (`perDay`) |
+
+Kategóriu „Allowed games" Jakub v appke zrušil; jej aplikácie sú teraz
+nezaradené a padajú do Ostatných aplikácií.
 
 Zoznam nainštalovaných aplikácií posiela tablet na server **šifrovane**
 (`EncryptedAppLists`), most ho prečítať nevie. Vidí len balíky už

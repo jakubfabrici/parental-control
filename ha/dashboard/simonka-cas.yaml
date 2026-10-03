@@ -329,16 +329,26 @@ views:
             heading_style: subtitle
             icon: mdi:shape-outline
 
+          # "Allowed Apps" = vzdy povolene (bez pravidiel, vratane
+          # .dummy.system_image = nezaradene systemove aplikacie).
+          # "Ostatné aplikácie" = predvolena kategoria pre vsetko nezaradene:
+          # 60 min denne po-pia, 180 min denne so-ne (perDay).
+          - type: markdown
+            content: >-
+              **Allowed Apps** — povolené stále (aj nezaradené systémové
+              aplikácie). **Ostatné aplikácie** — všetko ostatné: 60 min
+              denne po–pia, 180 min denne so–ne.
+
           - type: entities
             entities:
-              - entity: sensor.timelimit_simonka_allowed_games_pouzite_dnes
-                name: Hry – použité dnes
-              - entity: number.timelimit_simonka_allowed_games_strop_na_dnes
-                name: Hry – strop na dnes
-              - entity: number.timelimit_simonka_allowed_games_extra_cas_dnes
-                name: Hry – extra čas dnes
-              - entity: switch.timelimit_simonka_allowed_games_zablokovane
-                name: Hry – zablokované
+              - entity: sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes
+                name: Ostatné – použité dnes
+              - entity: number.timelimit_simonka_ostatne_aplikacie_strop_na_dnes
+                name: Ostatné – strop na dnes
+              - entity: number.timelimit_simonka_ostatne_aplikacie_extra_cas_dnes
+                name: Ostatné – extra čas dnes
+              - entity: switch.timelimit_simonka_ostatne_aplikacie_zablokovane
+                name: Ostatné – zablokované
               - entity: sensor.timelimit_simonka_allowed_apps_pouzite_dnes
                 name: Vždy povolené – použité dnes
               - entity: switch.timelimit_simonka_allowed_apps_zablokovane
@@ -371,8 +381,8 @@ views:
 
               <small>Zoznam nainštalovaných aplikácií posiela tablet šifrovane,
               HA vidí len balíky už priradené do kategórií. Nový balík zadaj
-              menom (napr. `com.whatsapp`) — presunie sa medzi vždy povolené
-              aj z inej kategórie.</small>
+              menom (napr. `com.whatsapp`). Odobratá aplikácia padne do
+              Ostatných aplikácií (limit 1 h / 3 h).</small>
 
           - type: entities
             entities:
