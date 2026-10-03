@@ -35,6 +35,8 @@ options:
   # most do HA: mail rodiča, cez ktorý sa HA prihlási do rodiny (musí byť vo whiteliste)
   parent_mail: ""
   bridge_device_name: "Home Assistant"
+  # kategória v appke, ktorá znamená „vždy povolené" (bez pravidiel)
+  always_allowed_category: "Allowed Apps"
   sync_interval: 60
   # voliteľné explicitné MQTT; prázdne = vypýtať od Supervisora (Mosquitto add-on)
   mqtt_host: ""
@@ -55,6 +57,7 @@ schema:
   mailpit_max_messages: int(10,100000)
   parent_mail: str?
   bridge_device_name: str
+  always_allowed_category: str
   sync_interval: int(15,900)
   mqtt_host: str?
   mqtt_port: port

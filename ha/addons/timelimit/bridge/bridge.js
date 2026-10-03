@@ -50,6 +50,9 @@ const options = readJson(OPTIONS_FILE, {});
 const parentMail = (options.parent_mail || '').trim().toLowerCase();
 const syncInterval = Math.max(15, Number(options.sync_interval) || 60) * 1000;
 const bridgeDeviceName = options.bridge_device_name || 'Home Assistant';
+// kategoria, ktora znamena "vzdy povolene" (bez pravidiel) - podla nazvu v appke
+const alwaysAllowedTitle = (options.always_allowed_category || 'Allowed Apps').trim().toLowerCase();
+const NONE = '—';
 
 const emptyState = () => ({
     mail: '',
@@ -434,6 +437,54 @@ function childSummary(child, now) {
     };
 }
 
+// Zoznam nainstalovanych aplikacii posiela tablet sifrovane (EncryptedAppLists),
+// most ho citat nevie. Vidi vsak balíky priradene do kategorii (CategoryApps),
+// takze "vzdy povolene" = presunut balik do kategorie bez pravidiel.
+function alwaysAllowedCatOf(childId) {
+    return catsOf(childId).find((c) => (c.base.title || '').trim().toLowerCase() === alwaysAllowedTitle) || null;
+}
+
+function appsSummary(child) {
+    const allowed = alwaysAllowedCatOf(child.id);
+    const others = {};
+    for (const c of catsOf(child.id)) {
+        if (allowed && c.base.categoryId === allowed.base.categoryId) continue;
+        others[c.base.title] = (c.apps || []).slice().sort();
+    }
+    return {
+        category: allowed ? allowed.base.title : null,
+        category_id: allowed ? allowed.base.categoryId : null,
+        apps: allowed ? (allowed.apps || []).slice().sort() : [],
+        other_apps: others,
+        unassigned_category: (() => { const c = state.categories[child.categoryForNotAssignedApps]; return c ? c.base.title : null; })()
+    };
+}
+
+async function addAlwaysAllowed(child, packageName) {
+    const allowed = alwaysAllowedCatOf(child.id);
+    if (!allowed) throw new Error('dieta ' + child.name + ' nema kategoriu "' + alwaysAllowedTitle + '"');
+    const pkg = String(packageName || '').trim();
+    if (!/^[A-Za-z0-9_.:@-]{3,200}$/.test(pkg)) throw new Error('neplatny nazov balika: ' + pkg);
+    // ADD_CATEGORY_APPS balik zaroven odoberie z inych kategorii dietata (presun)
+    await pushActions([{ type: 'ADD_CATEGORY_APPS', categoryId: allowed.base.categoryId, packageNames: [pkg] }]);
+}
+
+async function removeAlwaysAllowed(child, packageName) {
+    const allowed = alwaysAllowedCatOf(child.id);
+    if (!allowed) throw new Error('dieta ' + child.name + ' nema kategoriu "' + alwaysAllowedTitle + '"');
+    const pkg = String(packageName || '').trim();
+    if (!(allowed.apps || []).includes(pkg)) throw new Error(pkg + ' nie je medzi vzdy povolenymi');
+    // Nepriradeny balik padne do categoryForNotAssignedApps; ked ziadna nie je
+    // nastavena, appka ho blokuje. Ked ma dieta prave jednu dalsiu vrcholovu
+    // kategoriu, presunieme ho radsej tam (typicky "hry s limitom").
+    const otherTops = topCatsOf(child.id).filter((c) => c.base.categoryId !== allowed.base.categoryId);
+    if (!child.categoryForNotAssignedApps && otherTops.length === 1) {
+        await pushActions([{ type: 'ADD_CATEGORY_APPS', categoryId: otherTops[0].base.categoryId, packageNames: [pkg] }]);
+    } else {
+        await pushActions([{ type: 'REMOVE_CATEGORY_APPS', categoryId: allowed.base.categoryId, packageNames: [pkg] }]);
+    }
+}
+
 // ---------------------------------------------------------------- akcie
 
 function actBlock(categoryId, blocked, endTime) {
@@ -667,6 +718,33 @@ function publishDiscovery() {
             state_topic: t + '/limit', command_topic: t + '/limit/set'
         });
 
+        // vzdy povolene aplikacie
+        const apps = appsSummary(child);
+        const otherPkgs = Object.values(apps.other_apps).flat().sort();
+        mark('sensor', p + 'allowed_apps');
+        discover('sensor', p + 'allowed_apps', {
+            name: 'Vždy povolené aplikácie', icon: 'mdi:shield-check-outline', device: dev,
+            state_topic: t + '/allowed_apps', value_template: '{{ value_json.apps | length }}', json_attributes_topic: t + '/allowed_apps'
+        });
+        mark('select', p + 'allowed_apps_add');
+        discover('select', p + 'allowed_apps_add', {
+            name: 'Pridať medzi vždy povolené', icon: 'mdi:shield-plus-outline', device: dev,
+            options: [NONE].concat(otherPkgs),
+            state_topic: t + '/allowed_apps/add', command_topic: t + '/allowed_apps/add/set'
+        });
+        mark('select', p + 'allowed_apps_remove');
+        discover('select', p + 'allowed_apps_remove', {
+            name: 'Odobrať z vždy povolených', icon: 'mdi:shield-remove-outline', device: dev,
+            options: [NONE].concat(apps.apps),
+            state_topic: t + '/allowed_apps/remove', command_topic: t + '/allowed_apps/remove/set'
+        });
+        mark('text', p + 'allowed_apps_pkg');
+        discover('text', p + 'allowed_apps_pkg', {
+            name: 'Pridať balík medzi vždy povolené', icon: 'mdi:package-variant-plus', device: dev,
+            min: 0, max: 200, pattern: '^$|^[A-Za-z0-9_.:@-]{3,200}$',
+            state_topic: t + '/allowed_apps/pkg', command_topic: t + '/allowed_apps/pkg/set'
+        });
+
         for (const cat of catsOf(child.id)) {
             const cid = cat.base.categoryId;
             const ct = BASE + '/category/' + cid;
@@ -729,6 +807,10 @@ function publishState() {
         pub(t + '/no_limits', s.no_limits ? 'ON' : 'OFF');
         pub(t + '/extra', String(s.extra_min));
         pub(t + '/limit', s.limit_min === null ? 'None' : String(s.limit_min));
+        pub(t + '/allowed_apps', appsSummary(child));
+        pub(t + '/allowed_apps/add', NONE);
+        pub(t + '/allowed_apps/remove', NONE);
+        pub(t + '/allowed_apps/pkg', '');
         for (const c of s.categories) {
             const ct = BASE + '/category/' + c.id;
             pub(ct + '/state', c);
@@ -771,6 +853,14 @@ async function handleCommand(cmd) {
     const cat = findCategory(cmd.category, child);
     const target = cat ? [cat] : (child ? topCatsOf(child.id) : []);
     switch (action) {
+        case 'allow_app':
+            if (!child) throw new Error('allow_app potrebuje child');
+            await addAlwaysAllowed(child, cmd.package);
+            return;
+        case 'disallow_app':
+            if (!child) throw new Error('disallow_app potrebuje child');
+            await removeAlwaysAllowed(child, cmd.package);
+            return;
         case 'add_category':
             if (!child) throw new Error('add_category potrebuje child');
             await addCategory(child, cmd.title, cmd.default !== false);
@@ -809,6 +899,19 @@ async function onMessage(topic, payloadBuf) {
         if (topic === BASE + '/cmd') {
             await handleCommand(JSON.parse(payload));
         } else {
+            const ma = topic.match(/^timelimit\/child\/([^/]+)\/allowed_apps\/(add|remove|pkg)\/set$/);
+            if (ma) {
+                const child = findChild(ma[1]);
+                if (!child) throw new Error('nezname dieta ' + ma[1]);
+                if (payload === '' || payload === NONE) return;
+                if (ma[2] === 'remove') await removeAlwaysAllowed(child, payload);
+                else await addAlwaysAllowed(child, payload);
+                await pull();
+                publishDiscovery();
+                publishState();
+                saveState();
+                return;
+            }
             const m = topic.match(/^timelimit\/(child|category)\/([^/]+)\/(blocked|no_limits|extra|limit)\/set$/);
             if (!m) return;
             const [, kind, id, key] = m;
@@ -849,7 +952,7 @@ async function connectMqtt() {
     });
     client.on('connect', () => {
         pub(availabilityTopic, 'online');
-        client.subscribe([BASE + '/cmd', BASE + '/child/+/+/set', BASE + '/category/+/+/set']);
+        client.subscribe([BASE + '/cmd', BASE + '/child/+/+/set', BASE + '/category/+/+/set', BASE + '/child/+/allowed_apps/+/set']);
         publishDiscovery();
         publishState();
     });

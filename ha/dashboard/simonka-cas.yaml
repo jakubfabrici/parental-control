@@ -6,7 +6,8 @@
 # "Surovy editor konfiguracie" a vlozit tento obsah.
 #
 # Tlacidla volaju skripty z packages/simona_cas.yaml, lebo karta typu button
-# nevie odovzdat parameter priamo do input_number.set_value.
+# nevie odovzdat parameter priamo do input_number.set_value. Sekcia Tablet
+# bezi nad TimeLimit (add-on + most), nie nad Family Linkom.
 
 views:
   - title: Čas
@@ -234,70 +235,162 @@ views:
               - entity: input_text.simona_fl_zapisane
                 name: Naposledy zapísané do FL
 
-      # -- Tablet -------------------------------------------------------------
+      # -- Tablet (TimeLimit) ---------------------------------------------------
+      # Entity dava most v add-one TimeLimit (ha/addons/timelimit/bridge/)
+      # cez MQTT discovery. Family Link entity (iplay_50_*, switch.iplay_50,
+      # sensor.simona_fabriciova_daily_screen_time) tu uz nie su.
+      # Zoznam nainstalovanych aplikacii tablet posiela sifrovane, most vidi
+      # len baliky priradene do kategorii - preto vyber + textove pole.
       - type: grid
         cards:
           - type: heading
-            heading: Tablet (Family Link)
+            heading: Tablet (TimeLimit)
             heading_style: title
             icon: mdi:tablet
 
+          - type: markdown
+            content: >-
+              {% set u = states('sensor.timelimit_zariadenie_iplay_50') %}
+
+              {% set m = states('sensor.timelimit_most') %}
+
+              {% if is_state('switch.timelimit_simonka_zablokovane','on') %}### 🔒 Tablet je zablokovaný
+
+              {% elif is_state('switch.timelimit_simonka_bez_limitu','on') %}### ♾ Bez limitu do konca dňa
+
+              {% elif states('sensor.timelimit_simonka_zostava_dnes') in ['unknown','unavailable','None'] %}### ⏱ Bez denného limitu
+
+              {% else %}### ⏱ Zostáva {{ states('sensor.timelimit_simonka_zostava_dnes') | int(0) }} min
+
+              {% endif %}
+
+
+              Na tablete je prihlásený **{{ u }}**{% if u != 'Simonka' %} —
+              kým to nie je Simonka, appka nič nevynucuje{% endif %}.
+              Most: {{ m }}{% if state_attr('sensor.timelimit_most','last_sync') %},
+              sync {{ as_timestamp(state_attr('sensor.timelimit_most','last_sync')) | timestamp_custom('%H:%M:%S') }}{% endif %}.
+
           - type: entities
             entities:
-              - entity: sensor.simona_tablet_pouzite
-                name: Započítané dnes
-              - entity: sensor.iplay_50_screen_time_remaining
-                name: Zostáva podľa Family Link
-              - entity: sensor.iplay_50_daily_limit
-                name: Denný limit
-              - entity: sensor.iplay_50_active_bonus
-                name: Bonus
+              - entity: sensor.timelimit_simonka_pouzite_dnes
+                name: Použité dnes
+              - entity: sensor.timelimit_simonka_zostava_dnes
+                name: Zostáva dnes
+              - entity: sensor.timelimit_simonka_limit_dnes
+                name: Limit dnes (pravidlá appky + strop)
+              - entity: number.timelimit_simonka_strop_na_dnes
+                name: Strop na dnes (1440 = žiadny)
+              - entity: number.timelimit_simonka_extra_cas_dnes
+                name: Extra čas dnes
+              - entity: switch.timelimit_simonka_zablokovane
+                name: Zablokovať tablet
+                secondary_info: last-changed
+              - entity: switch.timelimit_simonka_bez_limitu
+                name: Bez limitu do konca dňa
               - entity: input_number.simona_offset_tablet
                 name: Nezapočítané (bez limitu)
-              - entity: binary_sensor.iplay_50_bedtime_active
-                name: Nočný režim
-              - entity: binary_sensor.iplay_50_school_time_active
-                name: Školský čas
 
-          # POZOR na semantiku switch.iplay_50 v integracii familylink:
-          #   async_turn_on()  = ODOMKNUT zariadenie
-          #   async_turn_off() = ZAMKNUT zariadenie
-          # Preto tu nie je prepinac, ale dve jednoznacne tlacidla - prepinac
-          # nazvany "Zamknut tablet" zvadzal k tomu, ze jeho vypnutim
-          # (v domnieni "vypinam zamok") sa tablet prave zamkol.
           - type: grid
-            columns: 2
+            columns: 3
             square: false
             cards:
               - type: button
-                name: Zamknúť tablet
-                icon: mdi:cellphone-lock
+                name: +15 min
+                icon: mdi:timer-plus-outline
                 tap_action:
                   action: perform-action
-                  perform_action: switch.turn_off
-                  target:
-                    entity_id: switch.iplay_50
-                confirmation:
-                  text: Zamknúť tablet? Kým bude zamknutý, Family Link neprijme zmeny limitu.
+                  perform_action: mqtt.publish
+                  data:
+                    topic: timelimit/cmd
+                    payload: '{"action":"add_time","child":"Simonka","minutes":15}'
               - type: button
-                name: Odomknúť tablet
-                icon: mdi:cellphone-check
+                name: +30 min
+                icon: mdi:timer-plus-outline
                 tap_action:
                   action: perform-action
-                  perform_action: switch.turn_on
-                  target:
-                    entity_id: switch.iplay_50
+                  perform_action: mqtt.publish
+                  data:
+                    topic: timelimit/cmd
+                    payload: '{"action":"add_time","child":"Simonka","minutes":30}'
+              - type: button
+                name: Blok 30 min
+                icon: mdi:timer-lock-outline
+                tap_action:
+                  action: perform-action
+                  perform_action: mqtt.publish
+                  data:
+                    topic: timelimit/cmd
+                    payload: '{"action":"block","child":"Simonka","minutes":30}'
+                confirmation:
+                  text: Zablokovať tablet na 30 minút?
+
+          - type: heading
+            heading: Kategórie
+            heading_style: subtitle
+            icon: mdi:shape-outline
+
+          - type: entities
+            entities:
+              - entity: sensor.timelimit_simonka_allowed_games_pouzite_dnes
+                name: Hry – použité dnes
+              - entity: number.timelimit_simonka_allowed_games_strop_na_dnes
+                name: Hry – strop na dnes
+              - entity: number.timelimit_simonka_allowed_games_extra_cas_dnes
+                name: Hry – extra čas dnes
+              - entity: switch.timelimit_simonka_allowed_games_zablokovane
+                name: Hry – zablokované
+              - entity: sensor.timelimit_simonka_allowed_apps_pouzite_dnes
+                name: Vždy povolené – použité dnes
+              - entity: switch.timelimit_simonka_allowed_apps_zablokovane
+                name: Vždy povolené – zablokované
+
+          - type: heading
+            heading: Vždy povolené aplikácie
+            heading_style: subtitle
+            icon: mdi:shield-check-outline
 
           - type: markdown
             content: >-
-              {% set a = state_attr('sensor.simona_fabriciova_daily_screen_time','apps') %}
+              {% set a = state_attr('sensor.timelimit_simonka_vzdy_povolene_aplikacie','apps') or [] %}
 
-              **Dnes najviac času:**
+              {% set o = state_attr('sensor.timelimit_simonka_vzdy_povolene_aplikacie','other_apps') or {} %}
+
+              Kategória **{{ state_attr('sensor.timelimit_simonka_vzdy_povolene_aplikacie','category') }}**
+              nemá časové pravidlá — čo je v nej, ide vždy.
 
 
-              {% if a %}{% for x in a[:5] %}- {{ x.name }} — {{ x.time }}
+              {% if a %}{% for x in a %}- `{{ x }}`
 
               {% endfor %}{% else %}_zatiaľ nič_{% endif %}
+
+
+              {% for k, v in o.items() %}{% if v %}<small>**{{ k }}:** {{ v | join(', ') }}</small>
+
+              {% endif %}{% endfor %}
+
+
+              <small>Zoznam nainštalovaných aplikácií posiela tablet šifrovane,
+              HA vidí len balíky už priradené do kategórií. Nový balík zadaj
+              menom (napr. `com.whatsapp`) — presunie sa medzi vždy povolené
+              aj z inej kategórie.</small>
+
+          - type: entities
+            entities:
+              - entity: select.timelimit_simonka_pridat_medzi_vzdy_povolene
+                name: Pridať zo známych
+              - entity: select.timelimit_simonka_odobrat_z_vzdy_povolenych
+                name: Odobrať
+              - entity: text.timelimit_simonka_pridat_balik_medzi_vzdy_povolene
+                name: Pridať balík menom
+
+          - type: entities
+            entities:
+              - entity: sensor.timelimit_zariadenie_iplay_50
+                name: Na tablete prihlásený
+              - entity: sensor.timelimit_most
+                name: Most do TimeLimit
+              - entity: button.timelimit_synchronizovat
+                name: Synchronizovať teraz
 
       # -- Pocitac ------------------------------------------------------------
       - type: grid

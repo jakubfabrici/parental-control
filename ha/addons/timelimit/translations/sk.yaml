@@ -32,6 +32,9 @@ configuration:
     description: Adresa rodiča v rodine TimeLimit. HA sa ňou prihlási ako ďalšie rodičovské zariadenie (kód si prečíta z Mailpitu sám). Musí byť vo whiteliste.
   bridge_device_name:
     name: Názov HA ako zariadenia v rodine
+  always_allowed_category:
+    name: Kategória „vždy povolené"
+    description: Názov kategórie v appke bez časových pravidiel. Presun balíka do nej = aplikácia je povolená stále.
   sync_interval:
     name: Interval synchronizácie (s)
   mqtt_host:
