@@ -413,7 +413,9 @@ views:
 
           - type: entities
             entities:
-              - entity: binary_sensor.simona_pc_sedi
+              # binary_sensor.simona_pc_sedi (patch-prezencia.py) zatial nie je
+              # nasadeny v HA - kym nebude, ukazujeme vzorku agenta.
+              - entity: input_boolean.simona_pc_pouziva_sa
                 name: Práve pri ňom sedí
               - entity: binary_sensor.simona_pc_online
                 name: Spojenie s agentom (< 5 min)
@@ -431,8 +433,6 @@ views:
                 name: Posledný dotyk myši/klávesnice
               - type: section
                 label: Diagnostika spojenia
-              - entity: input_boolean.simona_pc_pouziva_sa
-                name: Surová vzorka agenta
               - entity: input_number.simona_pc_latencia
                 name: Latencia tiku (nad 1 s)
               - entity: input_number.simona_pc_lag_max

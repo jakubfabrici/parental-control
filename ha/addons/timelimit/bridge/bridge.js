@@ -624,7 +624,19 @@ async function setTarget(cats, minutes) {
         const child = userById(cat.base.childId);
         const today = epochDay(Date.now(), timeZoneOf(child));
         if (minutes === null || minutes === undefined || !(Number(minutes) >= 0)) {
+            // Zrusenie ciela = HA uz tablet neriadi: uprac vlastne pravidlo aj
+            // extra cas, ktory most doplnal, nech plati len rozvrh appky.
+            const had = state.targets && state.targets[cat.base.categoryId];
             delete state.targets[cat.base.categoryId];
+            const cleanup = actLimitToday(cat, 1440, dayBit(Date.now(), timeZoneOf(child)));
+            if (had && extraTodayMs(cat, today) > 0) {
+                cleanup.push({ type: 'SET_CATEGORY_EXTRA_TIME', categoryId: cat.base.categoryId, newExtraTime: 0, day: today });
+            }
+            if (cleanup.length > 0) {
+                log('ciel zruseny: upratujem', cleanup.map((a) => a.type).join(','));
+                await pushActions(cleanup);
+                await pull();
+            }
         } else {
             state.targets = state.targets || {};
             state.targets[cat.base.categoryId] = { day: today, minutes: Math.round(Number(minutes)) };
@@ -715,7 +727,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-6', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-7', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
