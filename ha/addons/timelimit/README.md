@@ -5,9 +5,9 @@ rodičovský dohľad pre Android) bežiaci priamo v Home Assistante ako lokálny
 add-on. Nahrádza samostatný LXC 123 na `pve`, ktorý sa predtým zrušil.
 
 **Stav:** server beží, rodina je založená (rodič `timelimit@fabrici.xyz`,
-dieťa Simonka, zariadenie iPlay 50) a **most do HA je prihlásený** – entity
-v HA sú živé. Zdieľaný rozpočet (`simona_cas.yaml`) zatiaľ stále beží nad
-Family Linkom; prepnutie na TimeLimit je ďalší krok (viď nižšie).
+dieťa Simonka, zariadenie iPlay 50 s prihlásenou Simonkou), **most do HA je
+prihlásený** a **zdieľaný rozpočet s PC beží nad TimeLimit** (od 2026-10-03;
+Family Link integrácia od 2026-10-02 nefunguje, auth server vracia 403).
 
 ## Kde to beží
 
@@ -141,6 +141,31 @@ priradené do kategórií, preto sú v HA tri entity:
 `select.…_odobrat_z_vzdy_povolenych` a `text.…_pridat_balik_medzi_vzdy_povolene`
 na úplne nový balík menom. Zoznamy sú v atribútoch
 `sensor.…_vzdy_povolene_aplikacie`. Overené tam aj späť na testovacom balíku.
+
+### Zdieľaný čas s PC (cieľ na dnes)
+
+Spoločný rozpočet tablet + PC z `simona_cas.yaml` beží nad TimeLimit, keď je
+`input_select.simona_tablet_zdroj` = **TimeLimit** (predvolené). HA berie
+minúty tabletu z `sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes`
+(Allowed Apps sa nerátajú) a mostu posiela **cieľ na dnes** T =
+`sensor.simona_tablet_cielovy_limit` (rozpočet − PC) cez
+`{"action":"set_total", "category":"Ostatné aplikácie", "minutes":T}`.
+
+Most cieľ drží v stave (aj cez reštart, platí len pre daný deň) a pri každej
+synchronizácii ho premieta do TimeLimit:
+
+- vlastné pravidlo HA = min(T, strop appky); keď T ≥ strop appky, pravidlo
+  HA netreba,
+- čo je nad strop appky, doplní **extra čas**, dorovnávaný na presný zvyšok
+  `(T − použité) − max(0, cap − použité)`, takže appke zostáva T − použité.
+
+Overené: rozpočet 180 / PC 32 → strop 148; +15 → 163; rozpočet 240 → limit
+180 + extra 28 = 208; „Ukončiť čas" → 0; späť → 148. `clear_total`
+(vypnuté zdieľanie alebo prepnutie na Family Link) pravidlo HA aj extra čas
+uprace a platí len rozvrh appky (1 h / 3 h).
+
+Pri aktívnom cieli most prepisuje ručný strop a extra čas kategórie — čas sa
+pridáva cez spoločný rozpočet (`script.simona_cas_pridaj`), ako doteraz.
 
 ### Strop na dnes a pravidlá appky
 

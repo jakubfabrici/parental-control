@@ -280,6 +280,12 @@ mimo domu), na LAN `http://192.168.1.102:8080`; maily len na LAN na
 `http://192.168.1.102:8025`; databáza v add-one MariaDB. Prihlasovacie kódy
 server pošle len adresám `@fabrici.xyz`, nikto cudzí si rodinu nezaloží.
 
+**Od 2026-10-03 beží zdieľaný čas tabletu cez TimeLimit.** Family Link
+integrácia od 2. 10. nefunguje (auth server vracia 403), všetky jej entity
+sú `unavailable` — tablet sa vtedy nerátal a PC dostával strop 0.
+`input_select.simona_tablet_zdroj` prepína zdroj (TimeLimit / Family Link);
+zmenu priniesol `ha/packages/patch-timelimit.py`.
+
 Súčasťou add-onu je **most do HA**: prihlási sa do rodiny ako ďalšie
 rodičovské zariadenie a cez MQTT discovery dáva do HA entity na dieťa
 (použité minúty, zostatok, zablokované, bez limitu, extra čas, strop na
