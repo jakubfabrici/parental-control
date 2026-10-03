@@ -1,0 +1,5 @@
+30|Simonka, zostáva ti tridsať minút.
+15|Simonka, zostáva ti pätnásť minút.
+5|Simonka, zostáva ti päť minút.
+1|Simonka, zostáva ti posledná minúta.
+0|Simonka, čas na dnes sa minul. Počítač ti nezhasne, rozhodni sa sama.

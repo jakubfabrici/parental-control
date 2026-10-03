@@ -1,0 +1,7 @@
+{
+  "Token": "<nahodny token, rovnaky ako pc_agent_token v HA secrets.yaml>",
+  "Port": 8799,
+  "ScriptsDir": "..\\scripts",
+  "UpdateUrl": "http://192.168.1.185/pc-agent/",
+  "UpdateKey": "<hex kluc z /root/.pc-agent-update.key na OMV; bez neho sa aktualizacie odmietaju>"
+}
