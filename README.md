@@ -196,6 +196,20 @@ Tie tri minúty sa rátajú z agentových minút od okamihu vypnutia
 prestávka teda počítadlo nevynuluje. Kým pri ňom sedí, pripomenie sa najviac
 raz za pol hodinu.
 
+> **Pripravená zmena (zatiaľ nenasadená).** Výskum zo 7. 9. 2026 ukázal, prečo
+> indikátor „práve pri ňom sedí" často klame: je to zapamätaná odpoveď
+> posledného úspešného ticku, takže pri zlyhaní ticku ostane zhasnutý (19 minút
+> hrania, o ktorých HA nevedel) a po vypnutí PC ostane svietiť (3 h 16 min).
+> Riešenie je v `docs/VYSKUM-PREZENCIA.md`, kód v `ha/packages/patch-prezencia.py`
+> a `agent/patch-agent-1.1.0.py`. Prezenciu bude odvodzovať nový
+> `binary_sensor.simona_pc_sedi` z veku dvoch značiek (posledný kontakt
+> a posledný vstup), pribudnú `input_datetime.simona_pc_vstup`,
+> `simona_pc_ticho`, `simona_pc_vypnutie_pokus`, `input_number.simona_pc_latencia`,
+> `simona_pc_lag_max`, counter `simona_pc_skok_zamietnuty` a automatizácie
+> „PC offline → zhasnúť používa sa", „PC sa prestal hlásiť" a „PC hlási
+> nedôveryhodnú spotrebu". Upozornenie po limite ostáva na starej podmienke,
+> kým na PC nebeží agent 1.1.0 — inak by prestalo chodiť úplne.
+
 Minúty nad rámec rozpočtu sa rátajú ďalej, takže v `/cas` je vidieť, o koľko
 limit prekročila — a zajtrajší rozpočet tým nie je dotknutý.
 
@@ -240,8 +254,10 @@ neprepne `simona_cas.yaml`.
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
 | `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5 |
 | `ha/dashboard/simonka-cas.yaml` | obsah dashboardu (surový editor konfigurácie) |
-| `agent/` | Windows agent (viď `docs/AGENT.md`) |
-| `ha/addons/timelimit/` | `/addons/timelimit/` na HA — lokálny add-on **TimeLimit Server** (self-hostovaná náhrada Family Link, zatiaľ len beží; viď `ha/addons/timelimit/README.md`) |
+| `agent/windows-remote-control/` | kanonický zdroj Windows agenta — presne to, čo beží na PC (bez `config.json`) |
+| `agent/release.sh`, `agent/omv/` | vydanie novej verzie na OMV a jednorazová príprava OMV (viď `docs/UPDATE.md`) |
+| `agent/patch-agent*.ps1` | historické záplaty, ktorými vznikla dnešná verzia agenta |
+| `ha/addons/timelimit/` | `/addons/timelimit/` na HA — lokálny add-on **TimeLimit Server** (self-hostovaná náhrada Family Link + most do HA; viď `ha/addons/timelimit/README.md`) |
 
 Do existujúceho `packages/pc_control.yaml` bola pridaná jediná vec — položka
 menu, v oboch blokoch, kde sa hlavné menu skladá:

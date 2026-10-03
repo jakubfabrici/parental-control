@@ -22,20 +22,33 @@ Assistant.
 Home Assistant ju volá každú minútu (keď je PC offline, raz za päť minút):
 
 ```json
-{"token": "<token>", "action": "tick", "args": "<povolené minúty na dnes>"}
+{"token": "<token>", "action": "tick", "args": "<povolené minúty na dnes>", "used_min": 154}
 ```
 
 Odpoveď musí obsahovať aspoň `used`:
 
 ```json
-{"used": 42, "active": true, "allowed": 120, "text": "42/120 min"}
+{"used": 42, "active": true, "allowed": 120, "idle_sec": 12, "age_sec": 3,
+ "needs_seed": false, "lag_max": 0, "version": "1.1.0"}
 ```
 
 | Pole | Význam |
 |---|---|
 | `used` | Minúty **skutočne odsedené dnes pri PC**. Toto je jediné číslo, ktoré HA preberá. |
-| `active` | Či práve teraz niekto pri PC reálne je (nepovinné, na diagnostiku). |
+| `active` | Surová vzorka agenta: bol vstup mladší než 60 s v okamihu posledného merania? Od verzie 1.1.0 je to naozaj **len diagnostika** — prezenciu si HA odvodzuje sám z `idle`/`age`. |
 | `allowed` | Echo prijatého stropu (nepovinné, na kontrolu). |
+| `idle_sec` | Sekundy od posledného dotyku myši alebo klávesnice v okamihu merania. |
+| `age_sec` | Koľko sekúnd staré je to meranie. HA z dvojice počíta čas posledného vstupu: `teraz − idle_sec − age_sec`. Obe polia chýbajú, kým agent nemá platnú snímku (napr. hneď po štarte) — vtedy si HA nechá predošlú značku. |
+| `needs_seed` | `true` = agent prišiel o svoj stav a čaká, kým mu HA v `used_min` vráti dnešnú spotrebu. |
+| `lag_max` | Najväčšie meškanie tiku **za dnešok**, v sekundách; 0 je normál. Denné maximum zámerne: práve tik s veľkým meškaním najčastejšie padne na timeout, takže hodnota „od posledného ticku“ by sa stratila. Nuluje sa pri zmene dňa, HA si drží `max(vlastná hodnota, hlásená)`. |
+| `version` | Verzia agenta zo súboru `VERSION` — kontrola po aktualizácii z OMV. |
+
+**`used_min` je pole POŽIADAVKY, nie odpovede.** Sú to minúty, ktoré si o
+dnešku pamätá Home Assistant (`input_number.simona_pc_pouzite`, surová hodnota
+pred prepisom). Agent ich prevezme **len keď mu vlastný stav chýba**
+(`needs_seed`), prevezme ich **raz**, len do 10 minút od svojho štartu, len
+smerom nahor a najviac po hodnotu „koľko minút dnes vôbec ubehlo". Tá istá
+horná zábrana beží aj na strane HA. `-1` znamená „HA hodnotu nemá".
 
 `args` je strop pre celý dnešný deň, nie zostatok. Agent teda vynucuje pri
 `used >= allowed`.
@@ -113,6 +126,27 @@ vidieť, o koľko bol limit prekročený.
 Agent si posledný prijatý strop pamätá, takže vie varovať aj keď Home
 Assistant nebeží. Po obnovení spojenia HA prevezme `used` z agenta, takže sa
 nič nestratí.
+
+Opačný smer musel byť dorobený: keď agent príde o `state.json` (strata
+napájania), naštartuje s `usedSeconds = 0` a HA by ten prepad slepo prevzal.
+Stalo sa to dvakrát — 28. 8. a 6. 9. 2026, druhý raz to znamenalo pokles
+154 → 0 minút. Do verzie 1.0.0 vrátane bol zápis `Set-Content` + `Move-Item`
+bez vynúteného zápisu na disk, takže po tvrdom reštarte ostal
+neparsovateľný súbor.
+
+Od verzie 1.1.0 sú proti tomu tri opatrenia:
+
+- **Durabilný zápis.** `FileStream` + `Flush($true)`, potom `Move-Item` a až po
+  overenom zápise kópia do `state.json.bak`. Poškodený súbor sa neprepisuje,
+  ale odkladá ako `state.json.bad-<čas>`, aby zostal dôkaz.
+- **Tvrdé načítanie.** Prázdny alebo biely súbor, chýbajúce povinné polia a
+  nezmyselné `usedSeconds` (nad 200 000 s) sa odmietnu a skúsi sa `.bak`.
+- **`needs_seed`.** Keď ani záloha nepomôže, agent to v ticku prizná a HA mu
+  v `used_min` vráti dnešnú spotrebu.
+
+Na strane HA je poistka nezávislá od agenta: `input_number.simona_pc_pouzite`
+je **v rámci dňa monotónny** — pokles sa ignoruje (okrem prvých desiatich
+minút po polnoci, keď agent deň resetuje skôr než HA).
 
 ## Stav: hotové a overené
 
