@@ -12,6 +12,11 @@ COPY --from=mailpit /mailpit /usr/local/bin/mailpit
 # Oprava migracii v image (zly glob + umzug v2 vs v3) - viz patches/umzug.js.
 COPY patches/umzug.js /usr/src/app/build/database/migration/umzug.js
 
+# Most do Home Assistantu (MQTT discovery) - jedina zavislost je mqtt klient,
+# instaluje sa pri builde image.
+COPY bridge /opt/bridge
+RUN cd /opt/bridge && npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+
 COPY run.sh /run.sh
 RUN chmod +x /run.sh
 

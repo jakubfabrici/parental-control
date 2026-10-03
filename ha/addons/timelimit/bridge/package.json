@@ -1,0 +1,9 @@
+{
+  "name": "timelimit-ha-bridge",
+  "private": true,
+  "description": "Most medzi TimeLimit serverom a Home Assistantom (MQTT discovery)",
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "mqtt": "^5.10.0"
+  }
+}

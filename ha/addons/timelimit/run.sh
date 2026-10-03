@@ -62,13 +62,17 @@ cd /usr/src/app
 node ./build/index.js &
 TL=$!
 
-# busybox wait nepozna -n: ked jeden z dvoch procesov spadne, zhodime aj druhy
+echo "[timelimit] startujem most do Home Assistantu (MQTT)"
+OPTIONS_FILE="$OPTIONS" node /opt/bridge/bridge.js &
+BR=$!
+
+# busybox wait nepozna -n: ked jeden z troch procesov spadne, zhodime aj ostatne
 # a kontajner skonci - Supervisor (watchdog) ho potom restartuje.
-trap 'kill $MP $TL 2>/dev/null' TERM INT
-while kill -0 "$MP" 2>/dev/null && kill -0 "$TL" 2>/dev/null; do
+trap 'kill $MP $TL $BR 2>/dev/null' TERM INT
+while kill -0 "$MP" 2>/dev/null && kill -0 "$TL" 2>/dev/null && kill -0 "$BR" 2>/dev/null; do
     sleep 5
 done
-kill "$MP" "$TL" 2>/dev/null || true
+kill "$MP" "$TL" "$BR" 2>/dev/null || true
 wait || true
 echo "[timelimit] jeden z procesov skoncil, koncim" >&2
 exit 1

@@ -4,8 +4,10 @@ Self-hostovaný server pre [TimeLimit](https://timelimit.io) (open-source
 rodičovský dohľad pre Android) bežiaci priamo v Home Assistante ako lokálny
 add-on. Nahrádza samostatný LXC 123 na `pve`, ktorý sa predtým zrušil.
 
-**Stav: server beží, appka zatiaľ nikde nie je nasadená.** Simonkin tablet
-ostáva na Family Linku, kým sa TimeLimit neoverí na náhradnom zariadení.
+**Stav:** server beží, rodina je založená (rodič `timelimit@fabrici.xyz`,
+dieťa Simonka, zariadenie iPlay 50) a **most do HA je prihlásený** – entity
+v HA sú živé. Zdieľaný rozpočet (`simona_cas.yaml`) zatiaľ stále beží nad
+Family Linkom; prepnutie na TimeLimit je ďalší krok (viď nižšie).
 
 ## Kde to beží
 
@@ -18,13 +20,13 @@ ostáva na Family Linku, kým sa TimeLimit neoverí na náhradnom zariadení.
 | Databáza | add-on **MariaDB** (`core-mariadb`), databáza a používateľ `timelimit` |
 | Dáta | `/data/mailpit.db` v add-one; všetko ostatné je v MariaDB |
 
-Add-on je jeden kontajner s dvoma procesmi: TimeLimit server (node) a Mailpit
-(statická Go binárka prekopírovaná z jeho image). Mailpit tam je preto, že
+Add-on je jeden kontajner s tromi procesmi: TimeLimit server (node), Mailpit
+(statická Go binárka prekopírovaná z jeho image) a most do HA (`bridge/bridge.js`). Mailpit tam je preto, že
 TimeLimit posiela rodičovi prihlasovacie kódy mailom — bez SMTP by sa nedalo
 ani zaregistrovať. Server posiela na `127.0.0.1:1025`, kód si prečítaš na
 porte 8025 a von z domu nič nechodí.
 
-Keď ktorýkoľvek z dvoch procesov spadne, `run.sh` zhodí aj druhý a kontajner
+Keď ktorýkoľvek z troch procesov spadne, `run.sh` zhodí aj ostatné a kontajner
 skončí — Supervisor (watchdog na `/time`) ho reštartuje.
 
 ### Prečo nie ingress pre Mailpit
@@ -57,6 +59,77 @@ Overený celý tok cez verejnú URL: `send-mail-login-code-v2` → kód v Mailpi
 
 Mailpit (kódy) sa von nevystavuje. Kód si prečítaš doma alebo cez headscale
 VPN; registrácia je jednorazová vec.
+
+## Most do Home Assistantu
+
+Server nemá REST API pre tretie strany, má sync protokol pre svoju appku.
+Most (`bridge/bridge.js`, node, jediná závislosť `mqtt`) sa doň zapája ako
+**ďalšie rodičovské zariadenie** „Home Assistant":
+
+1. pri štarte s nastaveným `parent_mail` si vyžiada prihlasovací kód
+   (`/auth/send-mail-login-code-v2`), **prečíta si ho sám z Mailpitu**
+   (beží v tom istom kontajneri), prihlási sa (`/auth/sign-in-by-mail-code`)
+   a pripojí sa do rodiny (`/parent/sign-in-into-family`);
+2. server mu dá trvalý `deviceAuthToken` a zariadenie má
+   `isUserKeptSignedIn: true`, takže rodičovské akcie posiela s
+   `integrity: "device"` — **bez rodičovského hesla a bez HMAC**;
+3. každých `sync_interval` sekúnd ťahá `/sync/pull-status` (inkrementálne,
+   podľa verzií) a drží si kópiu rodiny v `/data/bridge.json`;
+4. cez **MQTT discovery** (Mosquitto add-on, prihlásenie od Supervisora)
+   vytvára entity v HA a prekladá príkazy na akcie do `/sync/push-actions`.
+
+Ak rodina pre `parent_mail` ešte neexistuje (409), most to skúša každý
+interval znova a `sensor.timelimit_most` ukazuje „čaká na rodinu". Zmena
+`parent_mail` alebo odstránenie zariadenia v appke (401) spustí nové
+prihlásenie. Rate limit servera: 2 kódy za 5 minút a 6 za deň na adresu
+(v pamäti, reštart add-onu ho nuluje).
+
+Poradové čísla akcií musia ostať pod 2^31 (`Devices.nextSequenceNumber` je
+`int(11)`): most počíta od 0 a čítač drží v stave spolu s tokenom.
+
+### Entity v HA
+
+Zariadenie **TimeLimit** (most): `sensor.timelimit_most` (stav + atribúty),
+`button.timelimit_synchronizovat`, `sensor.timelimit_zariadenie_<názov>`
+(kto je na zariadení prihlásený).
+
+Zariadenie **TimeLimit – <dieťa>** pre každé dieťa:
+
+| Entita | Význam |
+|---|---|
+| `sensor.…_pouzite_dnes` | minúty dnes (súčet vrcholových kategórií; v atribútoch rozpis) |
+| `sensor.…_zostava_dnes`, `sensor.…_limit_dnes` | podľa pravidiel na dnes (minimum zo všetkých) |
+| `switch.…_zablokovane` | dočasné zablokovanie všetkých kategórií dieťaťa (`UPDATE_CATEGORY_TEMPORARILY_BLOCKED`) |
+| `switch.…_bez_limitu` | režim bez limitu do konca dňa (`SET_USER_DISABLE_LIMITS_UNTIL`) |
+| `number.…_extra_cas_dnes` | extra čas na dnes pre vrcholové kategórie (`SET_CATEGORY_EXTRA_TIME`) |
+| `number.…_strop_na_dnes` | strop na dnes — vlastné pravidlo HA (viď nižšie) |
+| `…_<kategória>_…` | to isté per kategória (použité, zablokované, extra, strop) |
+
+Generický príkaz na `timelimit/cmd` (JSON): `sync`, `block`/`unblock`
+(`child`/`category`, `minutes`), `add_time`, `set_extra`, `set_limit`,
+`no_limits` (`on`, `minutes`), `add_child`, `add_category`, `enroll`, `raw`
+(`actions: [{type, …}]` – únikový východ na ľubovoľnú rodičovskú akciu).
+Chyby idú na `timelimit/bridge/error` a do logu add-onu.
+
+### Strop na dnes a pravidlá appky
+
+Appka má svoj týždenný rozvrh ako pravidlá (často jedno na každý deň alebo
+masku dní). Most ich **nikdy nemení** — pre strop má vlastné pravidlo len s
+dnešným dňom, ktorého id si pamätá (`haRules` v stave). Platí minimum zo
+všetkých pravidiel, takže HA vie strop len stlačiť nižšie; zvýšiť sa dá
+extra časom. Presne tak dnes funguje aj override do Family Link. Hodnota
+≥ 1440 pravidlo HA zmaže; po polnoci ho most zmaže sám, aby o týždeň
+neplatilo znova.
+
+Pozor na sémantiku pravidiel TimeLimit: `perDay` = limit platí pre každý
+deň masky zvlášť; **bez `perDay` je to spoločný rozpočet pre všetky dni
+masky** (napr. 360 min na celý týždeň). Most to pri výpočte „zostáva dnes"
+zohľadňuje (odráta spotrebu ostatných dní masky v tomto týždni).
+
+### Overené na skutočnej rodine
+
+Extra čas 5 → 0, zablokovanie a odblokovanie, bez limitu zap/vyp, strop na
+dnes — všetko sa do pár sekúnd prejavilo v HA aj v databáze servera.
 
 ## Databáza
 
@@ -108,15 +181,20 @@ Kópia v repe a na HA majú mať rovnaký md5.
 
 ## Čo ďalej
 
-1. **Test na náhradnom zariadení** (starý telefón, *nie* Simonkin tablet):
-   nainštalovať [TimeLimit z F-Droidu](https://f-droid.org/en/packages/io.timelimit.android.aosp.direct/),
-   pri nastavení zvoliť vlastný server **`https://timelimit.fabrici.xyz`**,
-   zadať adresu `@fabrici.xyz`, kód prečítať v Mailpite
-   (`http://192.168.1.102:8025`), založiť rodinu. Serverová strana tohto toku
-   je overená cez API, chýba len fyzický telefón.
-2. Po založení rodiny zapnúť `disable_signup` v options add-onu.
-3. Overiť, či limity a blokovanie fungujú tak, ako treba — až potom riešiť
-   napojenie na zdieľaný rozpočet v HA.
+1. **Tablet prepnúť na Simonku.** V rodine je iPlay 50 prihlásený ako
+   rodič Jakub (`sensor.timelimit_zariadenie_iplay_50`); kým tam nie je
+   používateľ Simonka, appka na tablete nič nevynucuje.
+2. Zapnúť `disable_signup` v options add-onu (rodina už existuje).
+3. **Prepnúť `simona_cas.yaml` z Family Linku na TimeLimit** — náhrady
+   jedna k jednej: `sensor.iplay_50_…used_minutes` →
+   `sensor.timelimit_simonka_pouzite_dnes`; `familylink.set_daily_limit`
+   (override na dnes) → `number.timelimit_simonka_strop_na_dnes`; bonus →
+   `number.timelimit_simonka_extra_cas_dnes`; zamknutie tabletu →
+   `switch.timelimit_simonka_zablokovane`; režim bez limitu →
+   `switch.timelimit_simonka_bez_limitu`. Odpadá celá ozvena vlastných
+   zápisov (`simona_fl_zapisane`) aj pauza 00:00–00:10, lebo rozvrh je
+   v appke a HA píše len do vlastného pravidla.
+4. Až keď to beží paralelne a sedí, vypnúť HAFamilyLink.
 
 ## Napojenie na Home Assistant (zatiaľ neurobené)
 

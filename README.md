@@ -257,10 +257,13 @@ mimo domu), na LAN `http://192.168.1.102:8080`; maily len na LAN na
 `http://192.168.1.102:8025`; databáza v add-one MariaDB. Prihlasovacie kódy
 server pošle len adresám `@fabrici.xyz`, nikto cudzí si rodinu nezaloží.
 
-**Simonkin tablet ostáva na Family Linku.** Server zatiaľ len beží a čaká na
-test na náhradnom zariadení; napojenie na zdieľaný rozpočet nie je urobené.
-Podrobnosti, obídené chyby v oficiálnom image a ďalšie kroky sú v
-`ha/addons/timelimit/README.md`.
+Súčasťou add-onu je **most do HA**: prihlási sa do rodiny ako ďalšie
+rodičovské zariadenie a cez MQTT discovery dáva do HA entity na dieťa
+(použité minúty, zostatok, zablokované, bez limitu, extra čas, strop na
+dnes) aj na kategórie. Cieľ je, aby TimeLimit postupne **úplne nahradil
+HAFamilyLink** — ten nemá pekné prepojenie do HA. Zdieľaný rozpočet
+(`simona_cas.yaml`) zatiaľ stále beží nad Family Linkom; mapovanie entít
+a ďalšie kroky sú v `ha/addons/timelimit/README.md`.
 
 ## Na čo si dať pozor
 

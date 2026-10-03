@@ -27,6 +27,22 @@ configuration:
     description: Domény (bez @) alebo celé adresy, ktorým server pošle prihlasovací kód. Prázdne = komukoľvek.
   mailpit_max_messages:
     name: Mailpit – koľko správ držať
+  parent_mail:
+    name: Mail rodiča pre most do HA
+    description: Adresa rodiča v rodine TimeLimit. HA sa ňou prihlási ako ďalšie rodičovské zariadenie (kód si prečíta z Mailpitu sám). Musí byť vo whiteliste.
+  bridge_device_name:
+    name: Názov HA ako zariadenia v rodine
+  sync_interval:
+    name: Interval synchronizácie (s)
+  mqtt_host:
+    name: MQTT – hostiteľ
+    description: Prázdne = vypýtať od Supervisora (Mosquitto add-on).
+  mqtt_port:
+    name: MQTT – port
+  mqtt_user:
+    name: MQTT – používateľ
+  mqtt_password:
+    name: MQTT – heslo
 network:
   8080/tcp: TimeLimit API – sem sa pripája appka (vlastný server)
   8025/tcp: Mailpit – web s prihlasovacími kódmi
