@@ -1,7 +1,7 @@
 # Home Assistant local add-on: TimeLimit.io server + Mailpit
 # Nahrada za LXC 123 na pve - server bezi priamo v HA ako add-on.
 name: "TimeLimit Server"
-version: "1.17.0-10"
+version: "1.17.0-11"
 slug: "timelimit"
 description: "Self-hostovaný TimeLimit.io server (rodičovský dohľad) + Mailpit na kódy + most do HA cez MQTT. DB v add-one MariaDB."
 url: "https://gitlab.com/timelimit.io/timelimit-server-2018"
@@ -38,9 +38,8 @@ options:
   # kategória v appke, ktorá znamená „vždy povolené" (bez pravidiel)
   always_allowed_category: "Allowed Apps"
   sync_interval: 15
-  # doplnok servera: ako často žiadať tablet o synchronizáciu (s) - pri používaní / v nečinnosti
+  # doplnok servera: ako často žiadať tablet o synchronizáciu, kým sa na ňom ráta čas (s)
   tablet_sync_active: 30
-  tablet_sync_idle: 120
   # voliteľné explicitné MQTT; prázdne = vypýtať od Supervisora (Mosquitto add-on)
   mqtt_host: ""
   mqtt_port: 1883
@@ -63,7 +62,6 @@ schema:
   always_allowed_category: str
   sync_interval: int(15,900)
   tablet_sync_active: int(10,600)?
-  tablet_sync_idle: int(30,3600)?
   mqtt_host: str?
   mqtt_port: port
   mqtt_user: str?

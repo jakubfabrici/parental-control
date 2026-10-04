@@ -212,23 +212,33 @@ posledné minúty pred zhasnutím až do ďalšieho zapnutia.
 Preto:
 
 1. **Server** (doplnok `patches/ha-sync.js`, zapojený pri builde cez
-   `patches/apply-ha-sync.js`): kým je zariadenie dieťaťa pripojené, pošle mu
-   každých `tablet_sync_active` sekúnd (30 s) pokyn `should sync`
-   (isImportant). Appka hneď odošle čakajúcu spotrebu — rovnako ako po každej
-   zmene od rodiča. Do databázy sa nič nezapisuje. Keď tablet dve kolá nič
-   nové neposlal, server ho žiada len raz za `tablet_sync_idle` (120 s).
+   `patches/apply-ha-sync.js`): kým na pripojenom zariadení dieťaťa pribúda
+   spotreba, pošle mu každých `tablet_sync_active` sekúnd (30 s) pokyn
+   `should sync` (isImportant). Appka hneď odošle čakajúcu spotrebu — rovnako
+   ako po každej zmene od rodiča. Do databázy sa nič nezapisuje. Keď tablet dve
+   kolá nič nové neposlal, server ho už nežiada vôbec (posledná z týchto
+   synchronizácií je tá **jedna pri nečinnosti**). Znova sa rozbehne, keď
+   tablet niečo odošle sám, alebo keď HA zavolá `{"action":"sync"}` — most
+   potom požiada server (`POST 127.0.0.1:8081/sync`, len vnútri kontajnera)
+   a ten tablet hneď synchronizuje a minútu sleduje, či sa ráta čas.
 2. **Most** ťahá zmeny zo servera každých `sync_interval` sekúnd (15 s).
-3. **Tablet — raz ručne:** v appke TimeLimit *About → Error diagnose →
-   Experimental flags → „Keep connected when the screen is off"* (potvrdí sa
-   rodičovským prihlásením). Appka potom ostane pripojená aj pri zhasnutej
-   obrazovke, takže sa do HA dostane aj spotreba tesne pred zhasnutím; server
-   ju vtedy žiada riedko (raz za 2 minúty), čo baterku zaťaží len málo.
+3. **Tablet — raz ručne, dva prepínače:**
+   - v appke TimeLimit *About → Error diagnose → Experimental flags → „Keep
+     connected when the screen is off"* (potvrdí sa rodičovským
+     prihlásením) — appka ostane pripojená aj pri zhasnutej obrazovke, takže
+     server dostane aj spotrebu tesne pred zhasnutím;
+   - v companion appke HA *Settings → Companion app → Manage sensors →
+     Interactive* — HA tak vie o zapnutí obrazovky a automatizácia
+     `simona_tablet_sync_obrazovka` (`ha/packages/simona_tablet_sync.yaml`)
+     vtedy tablet hneď synchronizuje. (S prepínačom z TimeLimit sa totiž
+     appka po zapnutí obrazovky sama neozve.)
 
 Výsledok: pri používaní je čas tabletu v HA oneskorený najviac o ~1 minútu
-(30 s zápis + 30 s pokyn + 15 s most); po zhasnutí obrazovky (s prepínačom
-z bodu 3) do ~1 minúty dorazí všetko okrem posledného nezapísaného úseku
-kratšieho ako 30 s, ten príde pri ďalšom zapnutí. Bez prepínača chýba po
-zhasnutí najviac ~1 minúta, kým sa obrazovka znova nezapne.
+(30 s zápis + 30 s pokyn + 15 s most); po zhasnutí obrazovky do ~1 minúty
+dorazí všetko okrem posledného nezapísaného úseku kratšieho ako 30 s (ten
+príde pri ďalšom zapnutí). Pri zhasnutej obrazovke tablet nikto nebudí.
+Bez prepínača v TimeLimit chýba po zhasnutí najviac ~1 minúta, kým sa
+obrazovka znova nezapne.
 
 ### Pravidlo „jedno aktuálne zariadenie"
 

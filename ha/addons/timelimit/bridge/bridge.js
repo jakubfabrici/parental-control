@@ -20,6 +20,7 @@
 
 const fs = require('fs');
 const crypto = require('crypto');
+const http = require('http');
 const mqtt = require('mqtt');
 
 const OPTIONS_FILE = process.env.OPTIONS_FILE || '/data/options.json';
@@ -712,6 +713,29 @@ async function ensureRelaxedPrimaryDevice() {
     }
 }
 
+// Doplnok servera (patches/ha-sync.js) pocuva na 127.0.0.1:8081: POST /sync
+// hned poziada pripojene detske zariadenia o synchronizaciu a minutu sleduje,
+// ci na nich pribuda spotreba. HA to vola pri zapnuti obrazovky tabletu
+// (prikaz {"action":"sync"}, aj tlacidlo Synchronizovat). Potom pockame, kym
+// tablet odosle, nech nasledny pull uz nesie novu spotrebu.
+function wakeChildDevices() {
+    return new Promise((resolve) => {
+        const req = http.request({ host: '127.0.0.1', port: Number(process.env.HA_SYNC_PORT) || 8081, path: '/sync', method: 'POST', timeout: 3000 }, (res) => {
+            let body = '';
+            res.on('data', (c) => { body += c; });
+            res.on('end', () => {
+                let woken = 0;
+                try { woken = JSON.parse(body).woken || 0; } catch (e) { /* nic */ }
+                log('prebudenie tabletu: poziadanych zariadeni', woken);
+                if (woken > 0) setTimeout(resolve, 5000); else resolve();
+            });
+        });
+        req.on('timeout', () => req.destroy(new Error('timeout')));
+        req.on('error', (e) => { warn('prebudenie tabletu zlyhalo:', e.message); resolve(); });
+        req.end();
+    });
+}
+
 async function addChild(name, timeZone) {
     const userId = genId();
     await pushActions([{ type: 'ADD_USER', name, userId, userType: 'child', timeZone: timeZone || 'Europe/Bratislava' }]);
@@ -770,7 +794,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-10', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-11', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
@@ -963,7 +987,10 @@ function findCategory(ref, child) {
 
 async function handleCommand(cmd) {
     const action = cmd.action;
-    if (action === 'sync') return;
+    if (action === 'sync') {
+        await wakeChildDevices();
+        return;
+    }
     if (action === 'enroll') {
         await enroll((cmd.mail || parentMail).toLowerCase());
         return;

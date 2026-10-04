@@ -41,10 +41,8 @@ export DISABLE_SIGNUP="$(yesno disable_signup)"
 # tak nech si cudzi nevie ani vyziadat kod.
 export MAIL_WHITELIST="$(optlist mail_whitelist)"
 # Doplnok servera (patches/ha-sync.js): ako casto ziadat pripojene detske
-# zariadenie o synchronizaciu - kym posiela nove akcie / ked uz nic neposiela.
-# Prazdne = predvolene 30 s / 120 s.
+# zariadenie o synchronizaciu, kym na nom pribuda spotreba. Prazdne = 30 s.
 export HA_SYNC_ACTIVE_SEC="$(opt tablet_sync_active)"
-export HA_SYNC_IDLE_SEC="$(opt tablet_sync_idle)"
 
 echo "[timelimit] cakam na MariaDB ${DB_HOST}:${DB_PORT}"
 i=0

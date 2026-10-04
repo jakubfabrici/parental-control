@@ -132,11 +132,14 @@ pravidlá appky.
 
 Appka TimeLimit odosiela spotrebu sama len raz za 10 minút a pri zhasnutej
 obrazovke sa odpája. Server (doplnok v add-one, `patches/ha-sync.js`) preto
-pripojený tablet každých 30 s požiada o synchronizáciu a most zmeny ťahá
-každých 15 s — HA má čas tabletu oneskorený najviac asi o minútu. Aby sa do
-HA dostali aj minúty tesne pred zhasnutím obrazovky, treba na tablete raz
+tablet, kým na ňom pribúda spotreba, každých 30 s požiada o synchronizáciu;
+pri nečinnosti dá jednu záverečnú a potom ho nebudí. Most zmeny ťahá každých
+15 s — HA má čas tabletu oneskorený najviac asi o minútu. Na tablete treba raz
 zapnúť *TimeLimit → About → Error diagnose → Experimental flags → „Keep
-connected when the screen is off"*. Podrobnosti v
+connected when the screen is off"* (dostane sa tak do HA aj spotreba tesne
+pred zhasnutím) a v companion appke HA senzor **Interactive** (pri zapnutí
+obrazovky HA tablet hneď synchronizuje, `ha/packages/simona_tablet_sync.yaml`).
+Podrobnosti v
 [`ha/addons/timelimit/README.md`](ha/addons/timelimit/README.md#aktuálnosť-času-tabletu-v-ha).
 
 ### Polnoc
@@ -322,6 +325,7 @@ s tlačidlom na synchronizáciu.
 |---|---|
 | `ha/packages/simona_cas.yaml` | `/config/packages/` — rozvrh, účtovanie, prepočty, cieľ pre TimeLimit, PC, skripty pre dashboard |
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
+| `ha/packages/simona_tablet_sync.yaml` | `/config/packages/` — pri zapnutí obrazovky tabletu (senzor Interactive z companion appky) požiada TimeLimit o synchronizáciu |
 | `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5; staršie sú záznamom histórie |
 | `ha/packages/patch-bez-familylink.py` | posledná z nich (4. 10. 2026): z oboch balíkov odstránila vetvu Family Link |
 | `ha/dashboard/simonka-cas.yaml` | obsah dashboardu (surový editor konfigurácie) |
@@ -344,9 +348,11 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
 - **Na tablete musí byť v appke TimeLimit prihlásená Simonka.** Kto je
   prihlásený, ukazuje dashboard („Na tablete prihlásený"); keď je tam rodič,
   appka nevynucuje nič.
-- **Na tablete zapni „Keep connected when the screen is off".** Inak sa
-  spotreba tesne pred zhasnutím obrazovky (do ~1 minúty) dostane do HA až pri
-  ďalšom zapnutí tabletu (viď [Aktuálnosť času tabletu](#aktuálnosť-času-tabletu)).
+- **Na tablete zapni „Keep connected when the screen is off" (TimeLimit) a
+  senzor Interactive (companion appka HA).** Bez prvého sa spotreba tesne
+  pred zhasnutím obrazovky (do ~1 minúty) dostane do HA až pri ďalšom zapnutí;
+  bez druhého sa tablet s prvým prepínačom po zapnutí obrazovky ozve až pri
+  ďalšej spotrebe (viď [Aktuálnosť času tabletu](#aktuálnosť-času-tabletu)).
 - **Pravidlá appky (1 h / 3 h) sú len záchranná sieť.** Platia, keď HA alebo
   most nebeží, a krátko po polnoci, kým HA nepošle cieľ nového dňa. Rozvrh
   meň v HA, nie v appke.

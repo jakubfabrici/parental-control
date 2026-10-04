@@ -1,0 +1,32 @@
+# ============================================================================
+# Simona: tablet sa synchronizuje s TimeLimit pri zapnuti obrazovky
+#
+# Appka TimeLimit posiela spotrebu sama len raz za 10 minut. Server (doplnok
+# ha/addons/timelimit/patches/ha-sync.js) ju preto ziada kazdych 30 s, kym na
+# tablete pribuda spotreba, a po skonceni da este jednu zaverecnu
+# synchronizaciu. S prepinacom "Keep connected when the screen is off" v appke
+# TimeLimit ostava tablet pripojeny aj pri zhasnutej obrazovke - lenze pri
+# zapnuti obrazovky sa potom sam neozve. Zapnutie preto hlasi companion appka
+# HA na tablete (senzor "Interactive", treba ho v nej raz zapnut) a HA cez most
+# poziada server, aby tablet hned synchronizoval a znova sledoval spotrebu.
+#
+# Bez senzora Interactive sa automatizacia nespusti nikdy (entita neexistuje);
+# bez prepinaca v TimeLimit nie je potrebna - appka sa vtedy po zapnuti
+# obrazovky pripoji a synchronizuje sama.
+# ============================================================================
+
+automation:
+  - id: simona_tablet_sync_obrazovka
+    alias: "Simona tablet: synchronizovať TimeLimit pri zapnutí obrazovky"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.iplay_50_interactive
+        from: "off"
+        to: "on"
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: timelimit/cmd
+          payload: '{"action": "sync"}'
