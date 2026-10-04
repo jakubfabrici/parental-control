@@ -29,10 +29,11 @@ Jediný účet vedie Home Assistant. Obe zariadenia sú len spotrebitelia jedné
         │                                            │
         └──────────► skutočná spotreba ◄─────────────┘
      tablet: sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes
-     pc:     agent hlási každú minútu
+     pc:     agent hlási sám každých 30 s
 ```
 
-PC dostáva nový strop každú minútu. Tabletu HA posiela cieľ pri každej zmene
+Agent na PC hlási spotrebu každých 30 s a HA mu nový strop pošle, len keď sa
+líši od toho, ktorý agent drží. Tabletu HA posiela cieľ pri každej zmene
 (a pre istotu raz za päť minút); most ho pri uťahovaní posúva po
 5-minútových krokoch a presne až v posledných 15 minútach, lebo každá zmena
 tablet zobudí a ujedá mu baterku. Pridaný čas sa prejaví hneď. Keď hrá na
@@ -41,14 +42,11 @@ odchýlka nanajvýš minúta či dve.
 
 ### Prečo TimeLimit
 
-Family Link od Google **nemá verejné API** a neoficiálna integrácia, cez
-ktorú ho HA kedysi riadil, 27. 9. 2026 prestala fungovať a 4. 10. 2026 sa
-z HA odstránila (viď [História](#história)).
 [TimeLimit](https://timelimit.io) je open-source rodičovský dohľad pre
 Android a jeho server beží **doma**, ako add-on v Home Assistante:
 
-- protokol sa mení len vtedy, keď server aktualizuješ ty, nie keď sa tak
-  rozhodne Google,
+- server aj protokol sú pod našou kontrolou — menia sa len vtedy, keď
+  server aktualizuješ ty,
 - most sa do rodiny prihlási ako ďalšie rodičovské zariadenie a píše len do
   vlastného pravidla a extra času — pravidlá appky nechá tak,
 - minúty sa rátajú **po kategóriách**, takže vždy povolené aplikácie sa do
@@ -71,10 +69,11 @@ zlyhať na nedostupnom serveri.
 
 Kategória „Ostatné aplikácie" má v appke TimeLimit vlastné pravidlá s
 rovnakými číslami (60 min denne po–pia, 180 min denne so–ne, `perDay`). Tie
-sú len **záchranná sieť**: platia, keď HA alebo most nebeží, a krátko po
-polnoci (viď nižšie). Kým HA beží, most ich nemení, ale ide cez ne oboma
-smermi — nižšie vlastným pravidlom HA, vyššie extra časom. Rozvrh preto meň
-**len v HA** (dashboard); pravidlá appky sa prejavia iba pri výpadku.
+sú len **záchranná sieť**: platia, keď HA alebo most nebeží, a od polnoci
+do 00:06 (viď [Polnoc](#polnoc)). Kým HA beží, most ich nemení, ale ide cez
+ne oboma smermi — nižšie vlastným pravidlom HA, vyššie extra časom. Rozvrh
+preto meň **len v HA** (dashboard); pravidlá appky sa prejavia iba pri
+výpadku a v prvých minútach po polnoci.
 
 ## Tablet: TimeLimit
 
@@ -98,9 +97,18 @@ v oficiálnom image sú v `ha/addons/timelimit/README.md`.
 | Kategória | Čo v nej je | Pravidlá |
 |---|---|---|
 | Allowed Apps | vybrané aplikácie + `.dummy.system_image` (= všetky nezaradené **systémové** aplikácie) | žiadne — povolené stále, do spoločného času sa nerátajú |
-| Ostatné aplikácie | predvolená kategória pre každú nezaradenú aplikáciu | 60 min denne po–pia, 180 min denne so–ne (`perDay`) — len záchranná sieť |
+| Ostatné aplikácie | predvolená kategória pre každú nezaradenú nesystémovú aplikáciu | 60 min denne po–pia, 180 min denne so–ne (`perDay`) — len záchranná sieť |
+
+V Allowed Apps je dnes 197 balíkov vrátane `.dummy.system_image` a medzi
+nimi aj YouTube, Chrome, Obchod Play, Google TV, Jellyfin, ChatGPT, LepšiaTV
+a Microsoft Teams. Tie sú povolené stále: do spoločného času sa nerátajú,
+nemajú limit a neobmedzuje ich ani denná doba.
 
 Vždy povolené aplikácie sa pridávajú a odoberajú z dashboardu (viď nižšie).
+„Odobrať z vždy povolených" balík **presunie** do Ostatných aplikácií, takže
+odvtedy sa ráta a podlieha limitu aj systémová appka ako YouTube. (Predtým
+ho len vyradil a systémová appka cez `.dummy.system_image` spadla späť do
+Allowed Apps.)
 
 ### Cieľ na dnes
 
@@ -147,15 +155,100 @@ bezpečnostná poznámka v
 Rozpočet sa z rozvrhu naplní o **00:06** a vtedy sa vynulujú aj včerajšie
 čísla (minúty PC, nezapočítané minúty, snímky). Nie o 00:00: agent na PC
 nuluje o 00:00 a most ohlási minúty nového dňa až pri prvej synchronizácii
-po polnoci (raz za minútu). O 00:06 sú obe strany dávno na novom dni, takže
-sa nový rozpočet nestretne so včerajšími minútami — inak by prišlo falošné
-„čas sa minul" a vypnutie PC o polnoci.
+po polnoci. O 00:06 sú obe strany dávno na novom dni, takže sa nový rozpočet
+nestretne so včerajšími minútami — inak by prišlo falošné „čas sa minul" a
+vypnutie PC o polnoci.
 
-Cieľ aj vlastné pravidlo HA platia len pre deň, v ktorý vznikli; pri prvej
+Od 00:00 do 00:05 HA tabletu cieľ **neposiela**. PC je v noci väčšinou
+vypnuté, takže v HA až do resetu ostávajú včerajšie minúty PC aj včerajší
+rozpočet — cieľ vypočítaný z nich by mohol byť nesprávny, krajne 0. Cieľ aj
+vlastné pravidlo HA platia len pre deň, v ktorý vznikli, a pri prvej
 synchronizácii po polnoci ich most zahodí sám (extra čas je v TimeLimit tiež
-len na konkrétny deň). Kým HA nepošle prvý cieľ nového dňa (posiela ho pri
-zmene a raz za päť minút), ide tablet podľa pravidiel appky. Do 00:06 sa
-cieľ počíta ešte zo včerajšieho rozpočtu, potom už z nového.
+len na konkrétny deň). V tom okne teda tablet ide len podľa záchrannej siete
+appky (60 min po–pia, 180 min so–ne). Prvý cieľ nového dňa odíde hneď po
+resete o 00:06, keď sa zmení `sensor.simona_tablet_cielovy_limit` (poistne
+ešte o 00:06:30).
+
+## PC: Windows agent
+
+Na PC beží agent z `agent/windows-remote-control/` (podrobnosti v
+[`docs/AGENT.md`](docs/AGENT.md), aktualizácie z OMV v
+[`docs/UPDATE.md`](docs/UPDATE.md)). Ráta len aktívne používanie — čas, keď
+sa hýbe myšou alebo píše.
+
+Od verzie 1.2.0 agent sám **každých 30 s** posiela hlásenie na webhook HA,
+do automatizácie `simona_cas_pc_hlasenie` (id webhooku je v `secrets.yaml`
+ako `simona_pc_webhook`, celá adresa je na PC v `config.json` ako
+`PushUrl`). HA z neho prevezme spotrebu a značku posledného vstupu a strop
+`sensor.simona_pc_povolene` pošle agentovi akciou `limit_set` len vtedy, keď
+sa líši od toho, ktorý agent hlási — v ustálenom stave smerom k PC nechodí
+nič.
+
+Minútový tick (`simona_cas_pc_tick`, HA sa pýta agenta) je už len záchranná
+sieť: spustí sa, až keď hlásenie nechodí viac ako 150 s (starý, zle
+nastavený alebo zaseknutý agent), a keď PC dlhšie nebeží, skúša ho len raz za
+päť minút.
+
+### Prezencia pri PC: čo je nasadené a čo ešte čaká
+
+Výskum zo 7. 9. 2026 (`docs/VYSKUM-PREZENCIA.md`) ukázal, prečo príznak
+„práve pri ňom sedí" (`input_boolean.simona_pc_pouziva_sa`) klamal: bola to
+zapamätaná odpoveď posledného úspešného ticku, takže pri zlyhaní ticku ostal
+zhasnutý (19 minút hrania, o ktorých HA nevedel) a po vypnutí PC svietil
+(3 h 16 min).
+
+**Nasadené** (v `ha/packages/simona_cas.yaml` aj naživo):
+
+- hlásenie agenta každých 30 s (viď vyššie) nesie aj `idle_sec`/`age_sec`;
+  HA podľa nich posúva značku posledného vstupu
+  `input_datetime.simona_pc_vstup` (vstup mladší než 60 s → teraz, inak ju
+  zneplatní) a zapíše ju ešte pred spotrebou,
+- spotrebu z hlásenia HA prijme, len keď je hodnoverná — najviac toľko
+  minút, koľko sa od posledného kontaktu dalo stihnúť (+2), a nikdy viac,
+  než od polnoci ubehlo; zamietnuté skoky ráta
+  `counter.simona_pc_skok_zamietnuty`,
+- záložný tick má timeout 20 s a frekvenciu podľa veku posledného kontaktu,
+- helpery `input_datetime.simona_pc_ticho`, `simona_pc_vypnutie_pokus`,
+  `input_number.simona_pc_latencia` a `simona_pc_lag_max` (maximum meškania,
+  ktoré hlási agent; HA ho zatiaľ o polnoci nenuluje),
+- automatizácie „PC offline → zhasnúť používa sa"
+  (`simona_cas_pc_offline_zhasni`) a „PC sa prestal hlásiť"
+  (`simona_cas_pc_ticho`: Telegram po 10 minútach offline, 7:00–21:00,
+  najviac raz za hodinu).
+
+**Čaká** — doplní to `ha/packages/patch-prezencia.py` (idempotentná záplata
+kotvená na dnešný stav balíka, zatiaľ nespustená; mení len HA):
+
+- **H1** `binary_sensor.simona_pc_sedi` — prezencia ako funkcia veku dvoch
+  značiek (kontakt < 150 s a vstup < 240 s), takže nemá ako zamrznúť,
+- **H2** tie isté zábrany ako pri hlásení aj v záložnom ticku (značka
+  vstupu, hodnovernosť spotreby, počítadlo skokov) a zápis latencie tiku do
+  `input_number.simona_pc_latencia`, ktorý dnes neplní nič,
+- **H3** tick posiela `used_min` (seed pre agenta po strate `state.json`)
+  a pri nedostupnom strope `allowed` −1 namiesto 0; kým hlásenie funguje,
+  tick nebeží, takže seed sa ani potom k agentovi nedostane (viď
+  [`docs/AGENT.md`](docs/AGENT.md#akcia-tick--záložná-cesta)),
+- **H6** vypnutie po limite: odhlučnená hrana „PC online", poistný spúšťač
+  každých 5 minút, `notify` namiesto `msg` (to hovorilo dvakrát) a hlavne
+  potvrdenie — `input_number.simona_pc_snap_vypnutie` sa zapíše, len keď
+  agent vypnutie potvrdí; každý pokus sa zapíše do
+  `simona_pc_vypnutie_pokus`, pri neúspechu rodič dostane správu a ďalší
+  pokus príde najskôr o 10 minút,
+- **H7** polnoc nechá snímku režimu bez limitu platnú, keď režim pokračuje
+  cez polnoc, a vynuluje diagnostiku (pokus o vypnutie, počítadlo skokov,
+  latenciu, `lag_max`),
+- **H8** koniec režimu bez limitu zvládne aj spotrebu PC nižšiu než snímka,
+- **H10** automatizácia „PC hlási nedôveryhodnú spotrebu"
+  (`simona_cas_pc_skok_alarm`, Telegram po treťom zamietnutom skoku po
+  sebe) — dnes sa počítadlo plní, ale nikto sa o tom nedozvie.
+
+Upozornenie po limite (`simona_cas_pc_po_limite`) ostáva na príznaku
+`simona_pc_pouziva_sa` (fáza 0c). Prepnúť ho na vek
+`input_datetime.simona_pc_vstup` sa smie, až keď chodí `idle_sec` — to už
+platí: hlásenie z 3. 10. 2026 (agent 1.2.0) ho nieslo. Zároveň však až po
+H2: záložný tick dnes značku vstupu nepíše, takže pri výpadku hlásenia by
+stála a upozornenie by neprišlo. Samotné prepnutie je samostatný krok; patch
+ho zámerne nerobí, do automatizácie pridá len poznámku.
 
 ## Entity
 
@@ -164,13 +257,16 @@ cieľ počíta ešte zo včerajšieho rozpočtu, potom už z nového.
 | `input_number.simona_rozvrh_po` … `_ne` | Týždenný rozvrh: minúty na jednotlivé dni. Jediný zdroj pravdy. |
 | `sensor.simona_rozvrh_dnes` | Koľko minút dáva rozvrh na dnes (atribúty `den`, `zajtra`). |
 | `input_number.simona_rozpocet_dnes` | Rozpočet na dnes (R) v minútach. O 00:06 sa preberá z rozvrhu v HA; pridanie času ho zvýši. |
-| `input_number.simona_pc_pouzite` | Minúty odsedené dnes pri PC. Plní agent. |
+| `input_number.simona_pc_pouzite` | Minúty odsedené dnes pri PC. Plní ich hlásenie agenta (každých 30 s; záložne tick), v rámci dňa len smerom nahor; hlásenie navyše zamietne skok, ktorý sa nedal stihnúť. |
+| `input_boolean.simona_pc_pouziva_sa` | Či pri PC práve niekto je — príznak `active` z posledného hlásenia (alebo záložného ticku); keď PC zmizne zo siete, zhasne ho `simona_cas_pc_offline_zhasni`. |
+| `input_datetime.simona_pc_vstup` | Značka posledného vstupu: čas hlásenia, v ktorom agent mal vstup mladší než 60 s (`idle_sec`/`age_sec`); keď hlási nečinnosť, HA ju zneplatní (o deň dozadu). |
+| `counter.simona_pc_skok_zamietnuty` | Koľko hlásení po sebe prinieslo spotrebu, ktorá sa nedala stihnúť (HA ju zamietol). |
 | `input_boolean.simona_zdielany_cas` | Hlavný vypínač. Keď je `off`, HA nezasahuje do ničoho. |
 | `input_boolean.simona_bez_limitu` | Režim bez limitu — kým je zapnutý, čas sa neráta. |
 | `input_number.simona_offset_tablet`, `…_pc` | Minúty, ktoré sa nezapočítali (nazbierané počas režimu bez limitu). |
 | `input_number.simona_snap_tablet`, `…_pc` | Stav v okamihu zapnutia režimu. |
 | `sensor.simona_pc_zapocitane` | Minúty pri PC po odrátaní nezapočítaných. |
-| `input_datetime.simona_pc_kontakt` | Posledné úspešné spojenie s agentom. |
+| `input_datetime.simona_pc_kontakt` | Posledné úspešné spojenie s agentom (hlásenie alebo záložný tick). |
 | `input_number.simona_pc_snap_vypnutie` | Minúty agenta v okamihu vypnutia PC. `−1` = dnes sa ešte nevypínalo. |
 | `input_datetime.simona_pc_upozornenie` | Kedy naposledy odišlo upozornenie „sedí pri PC po limite". |
 | `sensor.simona_tablet_namerane` | Minúty tabletu z TimeLimit (len kategória Ostatné aplikácie) pred odrátaním nezapočítaných. |
@@ -268,21 +364,9 @@ odíde len upozornenie:
 Tie tri minúty sa rátajú z agentových minút od okamihu vypnutia
 (`input_number.simona_pc_snap_vypnutie`), nie zo súvislého sedenia — krátka
 prestávka teda počítadlo nevynuluje. Kým pri ňom sedí, pripomenie sa najviac
-raz za pol hodinu.
-
-> **Pripravená zmena (zatiaľ nenasadená).** Výskum zo 7. 9. 2026 ukázal, prečo
-> indikátor „práve pri ňom sedí" často klame: je to zapamätaná odpoveď
-> posledného úspešného ticku, takže pri zlyhaní ticku ostane zhasnutý (19 minút
-> hrania, o ktorých HA nevedel) a po vypnutí PC ostane svietiť (3 h 16 min).
-> Riešenie je v `docs/VYSKUM-PREZENCIA.md`, kód v `ha/packages/patch-prezencia.py`
-> a `agent/patch-agent-1.1.0.py`. Prezenciu bude odvodzovať nový
-> `binary_sensor.simona_pc_sedi` z veku dvoch značiek (posledný kontakt
-> a posledný vstup), pribudnú `input_datetime.simona_pc_vstup`,
-> `simona_pc_ticho`, `simona_pc_vypnutie_pokus`, `input_number.simona_pc_latencia`,
-> `simona_pc_lag_max`, counter `simona_pc_skok_zamietnuty` a automatizácie
-> „PC offline → zhasnúť používa sa", „PC sa prestal hlásiť" a „PC hlási
-> nedôveryhodnú spotrebu". Upozornenie po limite ostáva na starej podmienke,
-> kým na PC nebeží agent 1.1.0 — inak by prestalo chodiť úplne.
+raz za pol hodinu. Či pri ňom naozaj sedí, sa dnes posudzuje podľa príznaku
+`input_boolean.simona_pc_pouziva_sa` (viď [Prezencia pri
+PC](#prezencia-pri-pc-čo-je-nasadené-a-čo-ešte-čaká)).
 
 Minúty nad rámec rozpočtu sa rátajú ďalej, takže v `/cas` je vidieť, o koľko
 limit prekročila — a zajtrajší rozpočet tým nie je dotknutý.
@@ -326,8 +410,10 @@ s tlačidlom na synchronizáciu.
 | `ha/packages/simona_cas.yaml` | `/config/packages/` — rozvrh, účtovanie, prepočty, cieľ pre TimeLimit, PC, skripty pre dashboard |
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
 | `ha/packages/simona_tablet_sync.yaml` | `/config/packages/` — stav obrazovky tabletu (senzor Interactive z companion appky) posiela serveru TimeLimit, ten podľa neho tablet synchronizuje |
+| `ha/packages/simona_tablet_ochrana.yaml` | `/config/packages/` — Telegram pri manipulácii s TimeLimit na tablete a keď v ňom nie je prihlásená Simonka |
 | `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5; staršie sú záznamom histórie |
-| `ha/packages/patch-bez-familylink.py` | posledná z nich (4. 10. 2026): z oboch balíkov odstránila vetvu Family Link |
+| `ha/packages/patch-bez-familylink.py` | migračná záplata (4. 10. 2026), viď [História](#história) |
+| `ha/packages/patch-prezencia.py` | pripravená, zatiaľ nespustená záplata prezencie pri PC (viď [Prezencia pri PC](#prezencia-pri-pc-čo-je-nasadené-a-čo-ešte-čaká)) |
 | `ha/dashboard/simonka-cas.yaml` | obsah dashboardu (surový editor konfigurácie) |
 | `agent/windows-remote-control/` | kanonický zdroj Windows agenta — presne to, čo beží na PC (bez `config.json`) |
 | `agent/release.sh`, `agent/omv/` | vydanie novej verzie na OMV a jednorazová príprava OMV (viď `docs/UPDATE.md`) |
@@ -347,14 +433,22 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
 
 - **Na tablete musí byť v appke TimeLimit prihlásená Simonka.** Kto je
   prihlásený, ukazuje dashboard („Na tablete prihlásený"); keď je tam rodič,
-  appka nevynucuje nič.
+  appka nevynucuje nič. Keď tam Simonka dlhšie než 2 minúty nie je, príde
+  rodičom Telegram (`ha/packages/simona_tablet_ochrana.yaml`).
+- **Nočný zámok a školský čas TimeLimit zatiaľ nevynucuje.** V TimeLimit nie
+  sú nastavené žiadne zablokované časy a HA tablet podľa hodín nezamyká —
+  večierku a školský čas dnes dáva len dohľad na strane Google. Kým ich
+  v TimeLimit nenahradia zablokované časy na **oboch** kategóriách (aj na
+  Allowed Apps, inak ostane YouTube či Chrome použiteľný aj v noci), nesmú
+  sa tam vypnúť — viď [nasledujúcu
+  sekciu](#čo-musí-urobiť-rodič-na-strane-google).
 - **„Keep connected when the screen is off" (TimeLimit) zapínaj len spolu so
   senzorom Interactive (companion appka HA).** Bez prepínača chýba v HA po
   zhasnutí obrazovky posledný kúsok (do ~1 minúty), kým sa tablet znova
   nezapne; prepínač bez senzora by tablet budil aj pri zhasnutej obrazovke
   (viď [Aktuálnosť času tabletu](#aktuálnosť-času-tabletu)).
 - **Pravidlá appky (1 h / 3 h) sú len záchranná sieť.** Platia, keď HA alebo
-  most nebeží, a krátko po polnoci, kým HA nepošle cieľ nového dňa. Rozvrh
+  most nebeží, a od polnoci do 00:06, keď HA cieľ zámerne neposiela. Rozvrh
   meň v HA, nie v appke.
 - **Ručný extra čas a strop na dnes sa pri zapnutom zdieľaní prepíšu.** Most
   ich pri každej synchronizácii dorovná podľa cieľa z HA — čas pridávaj cez
@@ -364,8 +458,6 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
   nastavený limit 0. Entity TimeLimit sú vtedy `unavailable`, tablet ide
   podľa toho, čo server dostal naposledy (spotreba na PC sa mu odvtedy
   neodráta), a PC si drží posledný strop. Stav ukazuje `sensor.timelimit_most`.
-- **Dohľad Google na tablete vypína len rodič** — viď nasledujúcu sekciu.
-  Kým beží, môže tablet zastaviť skôr, než by ho zastavil TimeLimit.
 - **Chromecast HD a TV Philips sú mimo tohto systému.** Pozeranie Jellyfinu
   na TV čas na tablete ani na PC neujedá.
 - **Keď je PC vypnutý**, HA sa naň pýta raz za päť minút a posledná známa
@@ -376,18 +468,48 @@ Token agenta je v `secrets.yaml` ako `pc_agent_token`.
 ## Čo musí urobiť rodič na strane Google
 
 Z Home Assistanta je Family Link preč, na tablete však Googlov dohľad beží
-ďalej. Vypnúť sa dá len v appke Family Link na rodičovskom telefóne:
+ďalej (meniť sa dá len v appke Family Link na rodičovskom telefóne) — a dnes
+je to **jediné, čo tablet zamyká v noci a počas vyučovania**. TimeLimit
+zatiaľ nemá nastavené žiadne zablokované časy (`blockedMinutesInWeek` je
+v oboch kategóriách prázdne) a žiadna automatizácia v HA tablet podľa hodín
+nezamyká. Preto:
 
-- pre iPlay 50 vypnúť **denný limit** (Daily limit), **večierku**
-  (Downtime/Bedtime) a **školský čas** (School time) a tablet odomknúť,
-  **alebo**
-- ukončiť dohľad nad Google účtom Simony, ak to Google v jej veku dovolí.
+- **Večierku (Downtime/Bedtime) a školský čas (School time) vo Family Link
+  zatiaľ nevypínaj.** Najprv musia v TimeLimit pribudnúť zablokované časy,
+  a to na **oboch** kategóriách — aj na Allowed Apps, inak by YouTube,
+  Chrome a ostatné vždy povolené appky ostali použiteľné aj v noci. Hodiny
+  večierky a školského času ešte treba určiť; potom sa do TimeLimit nastavia
+  cez most. **Stav: čaká na rozhodnutie.**
+- **Denný limit (Daily limit) vo Family Link** beží súbežne so spoločným
+  časom a vyhráva prísnejší, takže môže tablet zastaviť skôr než TimeLimit.
+  Zároveň je to dnes jediný strop, ktorý môže dopadnúť aj na appky
+  z Allowed Apps (pokiaľ nie sú povolené aj vo Family Link) — TimeLimit
+  YouTube, Chrome, Obchod Play, Google TV, Jellyfin či ChatGPT nepočíta ani
+  časovo neobmedzuje. Pred vypnutím si rozmysli, čo z Allowed Apps sa má
+  rátať do spoločného času; „Odobrať z vždy povolených" na dashboarde to
+  presunie do Ostatných aplikácií.
+- **Ukončiť dohľad nad Google účtom Simony** (ak to Google v jej veku
+  dovolí) má zmysel až po oboch bodoch vyššie. Dohľad dnes navyše bráni
+  odinštalovaniu TimeLimit: ten beží na tablete len ako *simple device
+  admin*. Ochrana sa dá zvýšiť na *password device admin*, prípadne *device
+  owner* (reset tabletu a adb), viď
+  [`ha/addons/timelimit/README.md`](ha/addons/timelimit/README.md#dozor-nad-timelimit-na-tablete).
+  Manipuláciu s TimeLimit, jeho odinštalovanie alebo stratu oprávnení
+  (`binary_sensor.timelimit_iplay_50_manipulacia`) aj iného prihláseného
+  používateľa hlási HA rodičom do Telegramu
+  (`ha/packages/simona_tablet_ochrana.yaml`).
 
-Inak beží Googlov limit na tablete **súbežne** s TimeLimit a vyhráva ten
-prísnejší. To isté rozhodnutie sa týka aj Chromecastu HD a TV Philips (nie
-sú súčasťou tohto systému). Pomocná appka Family Link
+Rovnaké rozhodnutie — čo nechať na Googli — čaká aj Chromecast HD a TV
+Philips; tie nie sú súčasťou tohto systému. Pomocná appka Family Link
 (`com.google.android.apps.kids.familylinkhelper`) ostáva v Allowed Apps
-zámerne, kým sa dohľad Google neukončí.
+zámerne, kým dohľad Googlu beží.
+
+**Zálohy HA.** Zálohy spred 4. 10. 2026 obsahujú add-on Family Link
+a `/share/familylink` s cookies Google relácie; dve zálohy z aktualizácie
+len tohto add-onu (`da601b0e` „Google Family Link Auth 1.3.0" a `5e61c6da`
+„… 1.7.1") sa nikdy neodrotujú. Reláciu add-onu preto treba v rodičovskom
+Google účte, ktorým sa add-on prihlasoval, odhlásiť (myaccount.google.com →
+Zabezpečenie → Vaše zariadenia), aby kópie cookies prestali platiť.
 
 ## História
 
@@ -412,9 +534,11 @@ nerátal a PC dostával strop 0.
 
 **Prechod na TimeLimit.** Self-hostovaný TimeLimit server bežal v HA najprv
 ako záložná cesta; od 3. 10. sa cez neho rátal zdieľaný čas tabletu,
-s prepínačom zdroja TimeLimit / Family Link. **4. 10. 2026** prešiel tablet
-na TimeLimit úplne (zdieľaný čas s PC ostal v HA, PC ďalej riadi Windows
-agent) a Family Link sa z Home Assistanta odstránil:
+s prepínačom zdroja TimeLimit / Family Link. **4. 10. 2026** prešiel denný
+čas tabletu úplne na TimeLimit (zdieľaný čas s PC ostal v HA, PC ďalej riadi
+Windows agent; večierka a školský čas na tablete zatiaľ ostali na Googli,
+viď [vyššie](#čo-musí-urobiť-rodič-na-strane-google)) a Family Link sa
+z Home Assistanta odstránil:
 integrácia, jej config entry a entity, add-on „Google Family Link Auth"
 (`92c20130_familylink-playwright`) aj jeho repozitár add-onov, položka v
 HACS, uložené cookies v `/share/familylink` a jej história v recorderi.

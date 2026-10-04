@@ -1,7 +1,7 @@
 # ============================================================================
 # Simona: dozor nad TimeLimit na tablete
 #
-# Bez Family Link je TimeLimit jedina zabrana na tablete. Svoje upozornenia
+# Ked dohlad Googlu skonci, je TimeLimit jedina zabrana na tablete. Svoje upozornenia
 # (manipulacia, odinstalovanie, odobrate opravnenia) appka posiela rodicovi s
 # appkou TimeLimit alebo mailom - mail tu konci v Mailpite, ktory nikto
 # necita. Most ich preto dava do HA (binary_sensor.timelimit_iplay_50_manipulacia,

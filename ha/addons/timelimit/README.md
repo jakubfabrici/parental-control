@@ -270,7 +270,7 @@ verzii (`always_pro`) to appka berie ako „každé zariadenie je aktuálne".
 
 ### Dozor nad TimeLimit na tablete
 
-Bez Family Link je TimeLimit jediná zábrana na tablete a jeho vlastné
+Keď dohľad Googlu skončí, je TimeLimit jediná zábrana na tablete a jeho vlastné
 upozornenia (manipulácia, odinštalovanie, odobraté oprávnenia) chodia len
 rodičovi s appkou TimeLimit alebo mailom — a mail tu končí v Mailpite. Most
 preto z údajov o zariadení (úroveň ochrany, oprávnenia, príznaky
@@ -350,15 +350,24 @@ Kópia v repe a na HA majú mať rovnaký md5.
 
 ## Čo ďalej
 
-1. **Vypnúť obmedzenia Googlu na tablete** — urobí len rodič, mimo HA.
-   V appke Family Link na rodičovskom telefóne pre iPlay 50 vypnúť denný
-   limit (Daily limit), večierku (Downtime/Bedtime) a školský čas
-   (School time) a tablet odomknúť — alebo ukončiť dohľad nad Simoninym
-   Google účtom, ak to Google pri jej veku dovolí. Inak na tablete
-   paralelne beží aj limit Googlu a platí prísnejší z oboch. To isté
-   rozhodnutie sa týka Chromecastu HD a TV Philips (nie sú súčasťou tohto
-   systému). Pomocná appka `com.google.android.apps.kids.familylinkhelper`
-   ostáva v Allowed Apps zámerne, kým dohľad Googlu nezmizne.
+1. **Najprv náhrady, až potom vypínať Google** (čaká na rozhodnutie
+   rodiča). Nočný zámok (večierka) a školský čas dnes na tablete drží len
+   Family Link — v TimeLimit nie sú žiadne blokované časy. Skôr než rodič
+   v appke Family Link vypne večierku (Downtime/Bedtime), školský čas
+   (School time) či denný limit, treba:
+   - rozhodnúť nočné a školské hodiny a nastaviť ich v TimeLimit ako
+     blokované časy na **obe** kategórie (aj Allowed Apps, inak ostane v
+     noci použiteľný YouTube, Chrome …);
+   - rozhodnúť, čo z Allowed Apps (YouTube, Chrome, Play Store, Google TV,
+     Jellyfin, ChatGPT …) sa má rátať — „Odobrať z vždy povolených" ich
+     presunie do Ostatných aplikácií;
+   - zvážiť vyššiu ochranu TimeLimit (password device admin / device owner)
+     — dohľad Googlu dnes bráni aj odinštalovaniu.
+   Kým beží aj Family Link, na tablete platí prísnejší z oboch limitov.
+   Chromecastu HD a TV Philips sa toto netýka (nie sú súčasťou systému).
+   Pomocná appka `com.google.android.apps.kids.familylinkhelper` ostáva
+   v Allowed Apps zámerne, kým dohľad Googlu nezmizne. Podrobne v hlavnom
+   `README.md` (Čo musí urobiť rodič na strane Google).
 2. Zapnúť `disable_signup` v options add-onu, ak ešte nie je (rodina už
    existuje).
 3. Voliteľne: zrkadliť týždenný rozvrh z HA (`input_number.simona_rozvrh_*`)

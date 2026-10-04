@@ -72,8 +72,7 @@ def swap(name, old, new):
 
 
 # --- H9: nove input_number helpery -----------------------------------------
-# (Kotva bez nasledujuceho "input_text:" - ten blok 2026-10-04 zmizol spolu
-# s Family Link, viď patch-bez-familylink.py.)
+# (Kotva bez nasledujuceho "input_text:" - ten blok odstranila zaplata zo 4. 10. 2026.)
 swap(
     "helpery-input-number",
     """    unit_of_measurement: min
