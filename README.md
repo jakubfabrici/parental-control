@@ -141,6 +141,15 @@ Píše sa aj priamo:
 Prístup majú len chaty Jakub (`5756450012`) a Mama (`8413756301`), rovnako ako
 pri ostatných automatizáciách.
 
+Pôvodné menu **Simonka Tablet** a ranná ponuka víkendového režimu cez sviatky
+(automatizácie v `/config/automations.yaml`, nie v balíku) čítali Family Link
+a od jeho výpadku 2. 10. ukazovali „unavailable". Od 4. 10. ukazujú TimeLimit
+a spoločný čas: „Pridať 30/60 min" pridá do spoločného rozpočtu (pri
+vypnutom zdieľaní priamo extra čas v TimeLimit), „Zablokovať/Odblokovať"
+prepína `switch.timelimit_simonka_zablokovane` a víkendový režim nastaví
+spoločný rozpočet na 150 min. Záloha pred zmenou:
+`automations.yaml.bak-pred-timelimit-telegram`.
+
 Rodičia dostanú upozornenie pri **30**, **10** a **0** zostávajúcich minútach
 (v režime bez limitu nechodí nič).
 
