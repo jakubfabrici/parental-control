@@ -67,7 +67,8 @@ Počítať sa má **aktívne používanie**, nie čas, keď PC len svieti:
   pripočítal celý interval,
 - **dôsledok:** pozeranie videa bez dotyku myši sa neráta,
 - počítadlo je perzistentné (prežije reštart agenta aj PC) a viaže sa na dátum —
-  po polnoci sa nuluje. HA si ho o 00:05 nuluje tiež, takže obe strany
+  po polnoci sa nuluje. HA si ho nuluje tiež, polnočným resetom
+  (`simona_cas_polnocny_reset`) pár minút po polnoci, takže obe strany
   začínajú deň na nule.
 
 ## Vynucovanie: agent nič, vypnutie riadi HA
@@ -157,8 +158,15 @@ Zmeny sú v agentovi nasadené (`patch-agent.ps1`, idempotentný, so zálohou
 tick 60  ->  {"used":7,"active":false,"allowed":60,"ok":true}
 ```
 
-a Home Assistant tých 7 minút prevzal a znížil limit tabletu vo Family Link
-zo 60 na 53 minút.
+a Home Assistant tých 7 minút prevzal a o toľko znížil limit tabletu zo 60 na
+53 minút. (Toto overenie prebehlo ešte v čase, keď tablet riadil Family Link;
+ten bol 4. 10. 2026 zo systému odstránený.) Dnes tablet riadi **TimeLimit**:
+Home Assistant mu cez most posiela denný cieľ
+`sensor.simona_tablet_cielovy_limit` = rozpočet − minúty z PC a PC dostáva
+strop rozpočet − minúty z tabletu (v `tick`, od verzie 1.2.0 hlavne cez
+`limit_set` po hlásení agenta). Agentovi je jedno, odkiaľ minúty
+tabletu pochádzajú — verzia 1.2.1 oproti 1.2.0 len prepisuje dva komentáre,
+ktoré ešte spomínali starý zdroj; správanie je rovnaké.
 
 Ako to v agentovi vyzerá teraz:
 

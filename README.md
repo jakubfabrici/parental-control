@@ -1,9 +1,10 @@
 # Rodičovský dohľad so zdieľaným časom
 
-Jeden denný rozpočet obrazovkového času pre **tablet** (Android, Google Family
-Link) a **Windows PC** dokopy. Keď Simonka odsedí hodinu na tablete, na PC jej
-zostanú dve — a naopak. Ovláda sa z Telegramu; týždenný rozvrh je v Home
-Assistante ako kópia toho z Family Link (viac nižšie).
+Jeden denný rozpočet obrazovkového času pre **tablet** (Android, appka
+[TimeLimit](https://timelimit.io) proti vlastnému serveru) a **Windows PC**
+dokopy. Keď Simonka odsedí hodinu na tablete, na PC jej zostanú dve — a
+naopak. Ovláda sa z Telegramu a z dashboardu; týždenný rozvrh je v Home
+Assistante a je jediným zdrojom pravdy.
 
 ## Ako to funguje
 
@@ -13,50 +14,50 @@ Jediný účet vedie Home Assistant. Obe zariadenia sú len spotrebitelia jedné
 ```
         týždenný rozvrh v HA (input_number.simona_rozvrh_po … _ne)
                               │
-                    00:05 ─── ▼ ────────────────────────┐
-                    input_number.simona_rozpocet_dnes = R│
-                              │                          │
-        ┌─────────────────────┴──────────────────────┐   │
-        ▼                                            ▼   │
-  FL denný limit                              povolené na PC
-  tabletu := R − pc                           := R + bonus − tablet
+                       00:06  ▼
+            input_number.simona_rozpocet_dnes = R
+                              │
+        ┌─────────────────────┴──────────────────────┐
+        ▼                                            ▼
+  cieľ tabletu T := R − pc                    povolené na PC
+  MQTT timelimit/cmd → set_total              := R − tablet
         │                                            │
         ▼                                            ▼
-  Family Link zamkne tablet              agent varuje hlasom; po nule
-  keď ho tablet vyčerpá                  HA počítač raz vypne
+  most → TimeLimit server → appka             agent varuje hlasom; po nule
+  na tablete zablokuje „Ostatné               HA počítač raz vypne
+  aplikácie", keď sa T minie
         │                                            │
         └──────────► skutočná spotreba ◄─────────────┘
-                 tablet: sensor.iplay_50_…used_minutes
-                 pc:     agent hlási každú minútu
+     tablet: sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes
+     pc:     agent hlási každú minútu
 ```
 
-Prepočet beží každú minútu, takže keď hrá na oboch zariadeniach naraz, obom sa
-strop priebežne uťahuje a odchýlka je nanajvýš minúta či dve.
+PC dostáva nový strop každú minútu. Tabletu HA posiela cieľ pri každej zmene
+(a pre istotu raz za päť minút); most ho pri uťahovaní posúva po
+5-minútových krokoch a presne až v posledných 15 minútach, lebo každá zmena
+tablet zobudí a ujedá mu baterku. Pridaný čas sa prejaví hneď. Keď hrá na
+oboch zariadeniach naraz, tablet spoločný rozpočet neprekročí a na PC je
+odchýlka nanajvýš minúta či dve.
 
-### Prečo takto a nie inak
+### Prečo TimeLimit
 
-Family Link **nemá verejné API**, ale integrácia
-[noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink) hovorí s tými
-istými internými endpointmi ako appka. Kľúčové je, že `familylink.set_daily_limit`
-posiela `timeLimitOverrides:batchCreate` — teda **override na dnešný deň**, nie
-prepis týždenného rozvrhu. Týždenný rozvrh v Google tak zostáva nedotknutý a my
-doňho len denne píšeme výnimku. O 23:57 ju vraciame na hodnotu rozvrhu, aby po
-nás nezostal žiadny override.
+Family Link od Google **nemá verejné API** a neoficiálna integrácia, cez
+ktorú ho HA kedysi riadil, 27. 9. 2026 prestala fungovať a 4. 10. 2026 sa
+z HA odstránila (viď [História](#história)).
+[TimeLimit](https://timelimit.io) je open-source rodičovský dohľad pre
+Android a jeho server beží **doma**, ako add-on v Home Assistante:
 
-### Rozvrh je v HA, nie vo Family Link
+- protokol sa mení len vtedy, keď server aktualizuješ ty, nie keď sa tak
+  rozhodne Google,
+- most sa do rodiny prihlási ako ďalšie rodičovské zariadenie a píše len do
+  vlastného pravidla a extra času — pravidlá appky nechá tak,
+- minúty sa rátajú **po kategóriách**, takže vždy povolené aplikácie sa do
+  spoločného času nerátajú.
 
-Týždenný rozvrh sa z Family Link **prečítať nedá**. Integrácia sprístupňuje len
-`appliedTimeLimits`, teda limit platný na dnešný deň — a v tom je už započítaný
-náš vlastný override. `sensor.iplay_50_daily_limit` teda neukazuje rozvrh, ale
-to, čo sme tam sami zapísali. (V zdrojáku integrácie existuje
-`parse_daily_limit_schedule`, ale nikto ju nevolá — je to mŕtvy kód.)
+### Rozvrh je v HA, pravidlá appky sú len záchranná sieť
 
-Pôvodne si polnočný reset bral rozpočet práve odtiaľ, a tým si čítal vlastný
-včerajší zvyšok. Rozpočet sa preto deň po dni scvrkával: **180 → 75 → 61**.
-Bola to chyba návrhu na našej strane, nie Family Linku.
-
-Rozvrh preto držíme v HA ako sedem helperov `input_number.simona_rozvrh_po`
-… `_ne`. Nastavené sú podľa rozvrhu v aplikácii:
+Týždenný rozvrh je v HA ako sedem helperov `input_number.simona_rozvrh_po`
+… `_ne`:
 
 | Deň | Minút |
 |---|---:|
@@ -64,49 +65,91 @@ Rozvrh preto držíme v HA ako sedem helperov `input_number.simona_rozvrh_po`
 | sobota, nedeľa | 180 |
 
 `sensor.simona_rozvrh_dnes` z nich vyberie dnešnú hodnotu (atribúty `den` a
-`zajtra`), o 00:05 sa ňou naplní rozpočet a o 23:57 sa ňou prepíše aj limit vo
-Family Link.
+`zajtra`) a o 00:06 sa ňou naplní rozpočet na nový deň (prečo nie o 00:00,
+viď [Polnoc](#polnoc)). Je to lokálna hodnota, takže polnočný reset nemôže
+zlyhať na nedostupnom serveri.
 
-### Zmena v aplikácii sa preberie sama
+Kategória „Ostatné aplikácie" má v appke TimeLimit vlastné pravidlá s
+rovnakými číslami (60 min denne po–pia, 180 min denne so–ne, `perDay`). Tie
+sú len **záchranná sieť**: platia, keď HA alebo most nebeží, a krátko po
+polnoci (viď nižšie). Kým HA beží, most ich nemení, ale ide cez ne oboma
+smermi — nižšie vlastným pravidlom HA, vyššie extra časom. Rozvrh preto meň
+**len v HA** (dashboard); pravidlá appky sa prejavia iba pri výpadku.
 
-Keď zmeníš denný limit priamo v aplikácii Family Link, HA to prevezme —
-prepíše si tým rozpočet na dnes **aj** hodnotu rozvrhu na dnešný deň, a pošle
-ti o tom správu do Telegramu. Kópia v HA tak zostáva verná.
+## Tablet: TimeLimit
 
-Háčik je v tom, že do `sensor.iplay_50_daily_limit` píšeme aj my sami:
-`familylink.set_daily_limit` si po zápise hneď vyžiada refresh koordinátora,
-takže **každý náš zápis sa do toho senzora o pár sekúnd vráti** ako „zmena".
-Pri 30-sekundovom pollingu by slepé preberanie znamenalo, že si každú minútu
-prečítame vlastný odpočet — tá istá degradácia ako predtým, len 30× rýchlejšie.
+Tablet (iPlay 50) riadi appka TimeLimit, v ktorej je prihlásená Simonka.
+Server beží v HA ako lokálny add-on **TimeLimit Server** (`local_timelimit`,
+v repe `ha/addons/timelimit/`), spolu s Mailpitom na prihlasovacie kódy. API
+je verejne na `https://timelimit.fabrici.xyz` (cez Caddy, bez VPN — appka ho
+potrebuje aj mimo domu), na LAN `http://192.168.1.102:8080`; maily len na LAN
+na `http://192.168.1.102:8025`; databáza v add-one MariaDB. Prihlasovacie
+kódy server pošle len adresám `@fabrici.xyz`, nikto cudzí si rodinu nezaloží.
 
-Preto si posledných päť hodnôt, ktoré sme do Family Link zapísali, pamätáme v
-`input_text.simona_fl_zapisane` a preberáme len takú zmenu, ktorá sa **ani
-jednej z nich nerovná** — teda tú, ktorú urobil rodič.
+Súčasťou add-onu je **most do HA** (`bridge/bridge.js`): prihlási sa do
+rodiny ako ďalšie rodičovské zariadenie „Home Assistant", cez MQTT discovery
+dáva do HA entity na dieťa (použité minúty, zostatok, zablokované, bez
+limitu, extra čas, strop na dnes) aj na kategórie a príkazy prijíma na
+topicu `timelimit/cmd`. Podrobnosti, celý zoznam entít a obchádzky chýb
+v oficiálnom image sú v `ha/addons/timelimit/README.md`.
 
-Ďalšie poistky v `simona_cas_fl_zmena`:
+### Kategórie u Simonky
 
-- prechody cez `unknown` / `unavailable` (reštart HA, výpadok Google) sa
-  ignorujú,
-- **nula sa neberie** — chodí aj z nočného a školského režimu,
-- kým je tablet zamknutý ručne, Family Link zmeny neprijíma a hlási neaktuálne
-  čísla, tak sa vtedy nepreberá nič.
+| Kategória | Čo v nej je | Pravidlá |
+|---|---|---|
+| Allowed Apps | vybrané aplikácie + `.dummy.system_image` (= všetky nezaradené **systémové** aplikácie) | žiadne — povolené stále, do spoločného času sa nerátajú |
+| Ostatné aplikácie | predvolená kategória pre každú nezaradenú aplikáciu | 60 min denne po–pia, 180 min denne so–ne (`perDay`) — len záchranná sieť |
 
-Medzi **00:00 a 00:10** do Family Link zámerne nezapisujeme: práve vtedy sa v
-ňom objaví rozvrh na nový deň a náš zápis by ho prepísal skôr, než by sme si
-ho stihli prečítať. Z rovnakého dôvodu má polnočný reset minútovú pauzu.
+Vždy povolené aplikácie sa pridávajú a odoberajú z dashboardu (viď nižšie).
 
-Polnočný reset preto naďalej berie hodnotu z **lokálneho** rozvrhu, nie priamo
-z Family Link — o 00:05 ešte nemusí byť načítaná a čítať vtedy naslepo bola
-pôvodná chyba. Skutočnú hodnotu prevezme `simona_cas_fl_zmena`, len čo dorazí.
+### Cieľ na dnes
+
+HA počíta pre tablet **cieľ** `sensor.simona_tablet_cielovy_limit` = R − PC
+(plus minúty nezapočítané v režime bez limitu; kým režim beží, 1440) a
+posiela ho mostu:
+
+```json
+{"action": "set_total", "child": "Simonka", "category": "Ostatné aplikácie", "minutes": T}
+```
+
+Most cieľ drží v stave (aj cez reštart, platí len pre daný deň) a pri každej
+synchronizácii ho premieta do TimeLimit:
+
+- vlastné pravidlo HA = min(T, strop appky); keď T ≥ strop appky, pravidlo
+  HA netreba,
+- čo je nad strop appky, doplní **extra časom** a dorovnáva ho na presný
+  zvyšok, takže appke vždy zostáva T − použité.
+
+Sprísnenie (PC ujedá z rozpočtu) posiela po 5-minútových krokoch a presne až
+v posledných 15 minútach tabletu; uvoľnenie (pridaný čas) ide hneď. Tablet
+totiž zobudí každá zmena — server mu cez websocket pošle „should sync".
+
+Keď sa zdieľanie vypne (`input_boolean.simona_zdielany_cas` = `off`), HA
+pošle `clear_total` a most svoje pravidlo aj extra čas uprace — platia len
+pravidlá appky.
+
+### Polnoc
+
+Rozpočet sa z rozvrhu naplní o **00:06** a vtedy sa vynulujú aj včerajšie
+čísla (minúty PC, nezapočítané minúty, snímky). Nie o 00:00: agent na PC
+nuluje o 00:00 a most ohlási minúty nového dňa až pri prvej synchronizácii
+po polnoci (raz za minútu). O 00:06 sú obe strany dávno na novom dni, takže
+sa nový rozpočet nestretne so včerajšími minútami — inak by prišlo falošné
+„čas sa minul" a vypnutie PC o polnoci.
+
+Cieľ aj vlastné pravidlo HA platia len pre deň, v ktorý vznikli; pri prvej
+synchronizácii po polnoci ich most zahodí sám (extra čas je v TimeLimit tiež
+len na konkrétny deň). Kým HA nepošle prvý cieľ nového dňa (posiela ho pri
+zmene a raz za päť minút), ide tablet podľa pravidiel appky. Do 00:06 sa
+cieľ počíta ešte zo včerajšieho rozpočtu, potom už z nového.
 
 ## Entity
 
 | Entita | Význam |
 |---|---|
-| `input_number.simona_rozvrh_po` … `_ne` | Týždenný rozvrh: minúty na jednotlivé dni. Kópia rozvrhu z Family Link. |
+| `input_number.simona_rozvrh_po` … `_ne` | Týždenný rozvrh: minúty na jednotlivé dni. Jediný zdroj pravdy. |
 | `sensor.simona_rozvrh_dnes` | Koľko minút dáva rozvrh na dnes (atribúty `den`, `zajtra`). |
-| `input_text.simona_fl_zapisane` | Posledných 5 hodnôt zapísaných do Family Link — slúži na rozoznanie vlastnej ozveny. |
-| `input_number.simona_rozpocet_dnes` | Rozpočet na dnes (R) v minútach. O 00:05 sa preberá z rozvrhu v HA. |
+| `input_number.simona_rozpocet_dnes` | Rozpočet na dnes (R) v minútach. O 00:06 sa preberá z rozvrhu v HA; pridanie času ho zvýši. |
 | `input_number.simona_pc_pouzite` | Minúty odsedené dnes pri PC. Plní agent. |
 | `input_boolean.simona_zdielany_cas` | Hlavný vypínač. Keď je `off`, HA nezasahuje do ničoho. |
 | `input_boolean.simona_bez_limitu` | Režim bez limitu — kým je zapnutý, čas sa neráta. |
@@ -116,38 +159,46 @@ pôvodná chyba. Skutočnú hodnotu prevezme `simona_cas_fl_zmena`, len čo dora
 | `input_datetime.simona_pc_kontakt` | Posledné úspešné spojenie s agentom. |
 | `input_number.simona_pc_snap_vypnutie` | Minúty agenta v okamihu vypnutia PC. `−1` = dnes sa ešte nevypínalo. |
 | `input_datetime.simona_pc_upozornenie` | Kedy naposledy odišlo upozornenie „sedí pri PC po limite". |
-| `sensor.simona_tablet_pouzite` | Minúty na tablete (čítané z Family Link). |
-| `sensor.simona_rozpocet_celkom` | R + bonus pridaný v aplikácii Family Link. |
+| `sensor.simona_tablet_namerane` | Minúty tabletu z TimeLimit (len kategória Ostatné aplikácie) pred odrátaním nezapočítaných. |
+| `sensor.simona_tablet_pouzite` | Minúty na tablete po odrátaní nezapočítaných. |
+| `sensor.simona_rozpocet_celkom` | Celkový rozpočet na dnes, = R. |
 | `sensor.simona_cas_pouzity` | Spolu tablet + PC (atribúty `tablet`, `pc`). |
 | `sensor.simona_cas_zostava` | Koľko z rozpočtu ešte zostáva. |
-| `sensor.simona_tablet_cielovy_limit` | Strop, ktorý sa zapisuje do Family Link. |
+| `sensor.simona_tablet_cielovy_limit` | Cieľ na dnes, ktorý sa posiela mostu TimeLimit (`set_total`). |
 | `sensor.simona_pc_povolene` | Koľko celkovo smie dnes odsedieť pri PC. |
 | `binary_sensor.simona_pc_online` | Či sa agent ohlásil za posledných 5 minút. |
 
+Z mosta TimeLimit sa používajú najmä
+`sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes` (minúty tabletu,
+z ktorých sa ráta spoločný čas), `switch.timelimit_simonka_zablokovane`
+(dočasné zablokovanie tabletu), `sensor.timelimit_most` (stav mosta) a
+entity vždy povolených aplikácií. Úplný zoznam je
+v `ha/addons/timelimit/README.md`.
+
 ## Ovládanie z Telegramu
 
-V menu **Simonka PC** je nová položka „🤝 Spoločný čas" s prehľadom a tlačidlami.
+V menu **Simonka PC** je položka „🤝 Spoločný čas" s prehľadom a tlačidlami.
 Píše sa aj priamo:
 
 | Príkaz | Čo urobí |
 |---|---|
-| `/cas` | Prehľad: rozvrh na dnes, rozpočet, spotreba po zariadeniach, zostatok, stav PC. |
+| `/cas` | Prehľad: rozvrh na dnes, rozpočet, spotreba po zariadeniach, zostatok, stav PC; keď je tablet zablokovaný, aj „🔒 Tablet je zablokovaný". |
 | `/cas_add 30` | Pridá 30 min do dnešného rozpočtu (platí pre obe zariadenia). |
 | `/cas_set 120` | Nastaví dnešný rozpočet na 120 min. |
-| `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované, tablet sa zamkne. |
+| `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované, takže obom zariadeniam zostane 0 (na tablete idú ďalej len vždy povolené aplikácie). |
 | `/cas_pauza`, `/cas_start` | Vypne / zapne zdieľanie (kým je vypnuté, HA nezasahuje). |
 | `/cas_bez`, `/cas_limit` | Zapne / vypne režim bez limitu. |
 
 Prístup majú len chaty Jakub (`5756450012`) a Mama (`8413756301`), rovnako ako
 pri ostatných automatizáciách.
 
-Pôvodné menu **Simonka Tablet** a ranná ponuka víkendového režimu cez sviatky
-(automatizácie v `/config/automations.yaml`, nie v balíku) čítali Family Link
-a od jeho výpadku 2. 10. ukazovali „unavailable". Od 4. 10. ukazujú TimeLimit
-a spoločný čas: „Pridať 30/60 min" pridá do spoločného rozpočtu (pri
-vypnutom zdieľaní priamo extra čas v TimeLimit), „Zablokovať/Odblokovať"
-prepína `switch.timelimit_simonka_zablokovane` a víkendový režim nastaví
-spoločný rozpočet na 150 min. Záloha pred zmenou:
+Menu **Simonka Tablet** a ranná ponuka víkendového režimu cez sviatky sú
+automatizácie v `/config/automations.yaml` (nie v balíku, mimo repa). Menu
+ukazuje minúty a zostatok tabletu a spoločný čas z TimeLimit. „Pridať
+30/60 min" pridá do spoločného rozpočtu (pri vypnutom zdieľaní priamo extra
+čas v TimeLimit), „Zablokovať/Odblokovať" prepína
+`switch.timelimit_simonka_zablokovane` a víkendový režim nastaví spoločný
+rozpočet na 150 min. Záloha pred prechodom na TimeLimit:
 `automations.yaml.bak-pred-timelimit-telegram`.
 
 Rodičia dostanú upozornenie pri **30**, **10** a **0** zostávajúcich minútach
@@ -158,14 +209,14 @@ Rodičia dostanú upozornenie pri **30**, **10** a **0** zostávajúcich minúta
 Na prázdniny, chorobu alebo výnimočný deň. Kým je zapnutý, **čas sa neráta** —
 ani na tablete, ani na počítači, a nechodia žiadne upozornenia.
 
-Nestačí prestať vynucovať: Family Link aj agent merajú ďalej, nedá sa im to
+Nestačí prestať vynucovať: TimeLimit aj agent merajú ďalej, nedá sa im to
 zakázať. Preto si pri zapnutí odložíme snímku stavu a pri vypnutí rozdiel
 pripočítame do „nezapočítaných" minút. Spotreba tak po vypnutí pokračuje
-presne tam, kde sa zastavila.
+presne tam, kde sa zastavila. Kým režim beží, dostane most cieľ 1440 min.
 
-Family Link porovnáva svoj limit proti **svojim** nameraným minútam, nie proti
-našim započítaným — preto sa nezapočítané minúty musia k stropu pripočítať,
-inak by sa tablet zamkol predčasne.
+Most aj appka porovnávajú cieľ so **svojimi** nameranými minútami, nie s
+našimi započítanými — preto sa nezapočítané minúty musia k cieľu pripočítať,
+inak by sa tablet zablokoval predčasne.
 
 Zapína sa prepínačom na dashboarde, tlačidlom v Telegrame alebo `/cas_bez`.
 Polnočný reset ho nevypína, ale nuluje nazbierané offsety.
@@ -248,25 +299,25 @@ Tlačidlá volajú skripty (`simona_cas_pridaj`, `simona_cas_nastav`,
 `simona_cas_ukonci`, `simona_pc_prikaz`), lebo karta typu *button* nevie
 odovzdať parameter priamo do `input_number.set_value`.
 
-Sekcia **Tablet** beží nad TimeLimit, nie nad Family Linkom: stav a
-zostatok, strop a extra čas na dnes, zablokovanie (aj na 30 min), bez
-limitu, rozpis po kategóriách, správa **vždy povolených aplikácií** a stav
-mostu. Entity Family Link (`iplay_50_*`, `switch.iplay_50`) z dashboardu
-zmizli; spoločný čas hore stále počíta tablet z Family Linku, kým sa
-neprepne `simona_cas.yaml`.
+Sekcia **Tablet (TimeLimit)**: stav a zostatok, limit na dnes, zablokovanie,
+bez limitu, tlačidlá, ktoré pridávajú do spoločného rozpočtu, blok na
+30 min, rozpis po kategóriách, správa **vždy povolených aplikácií**
+(zbaliteľný zoznam, výber na odobratie, pridanie balíka menom) a stav mosta
+s tlačidlom na synchronizáciu.
 
 ## Súbory
 
 | Súbor | Kam patrí |
 |---|---|
-| `ha/packages/simona_cas.yaml` | `/config/packages/` — rozvrh, účtovanie, prepočty, synchronizácia s Family Link, skripty pre dashboard |
+| `ha/packages/simona_cas.yaml` | `/config/packages/` — rozvrh, účtovanie, prepočty, cieľ pre TimeLimit, PC, skripty pre dashboard |
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
-| `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5 |
+| `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5; staršie sú záznamom histórie |
+| `ha/packages/patch-bez-familylink.py` | posledná z nich (4. 10. 2026): z oboch balíkov odstránila vetvu Family Link |
 | `ha/dashboard/simonka-cas.yaml` | obsah dashboardu (surový editor konfigurácie) |
 | `agent/windows-remote-control/` | kanonický zdroj Windows agenta — presne to, čo beží na PC (bez `config.json`) |
 | `agent/release.sh`, `agent/omv/` | vydanie novej verzie na OMV a jednorazová príprava OMV (viď `docs/UPDATE.md`) |
 | `agent/patch-agent*.ps1` | historické záplaty, ktorými vznikla dnešná verzia agenta |
-| `ha/addons/timelimit/` | `/addons/timelimit/` na HA — lokálny add-on **TimeLimit Server** (self-hostovaná náhrada Family Link + most do HA; viď `ha/addons/timelimit/README.md`) |
+| `ha/addons/timelimit/` | `/addons/timelimit/` na HA — lokálny add-on **TimeLimit Server** (server, Mailpit a most do HA `bridge/bridge.js`; viď `ha/addons/timelimit/README.md`) |
 
 Do existujúceho `packages/pc_control.yaml` bola pridaná jediná vec — položka
 menu, v oboch blokoch, kde sa hlavné menu skladá:
@@ -277,55 +328,82 @@ menu, v oboch blokoch, kde sa hlavné menu skladá:
 
 Token agenta je v `secrets.yaml` ako `pc_agent_token`.
 
-## TimeLimit server (príprava odchodu od Google)
-
-Celé zdieľanie času dnes stojí na HAFamilyLink, teda na neoficiálnom API,
-ktoré Google môže kedykoľvek rozbiť. Ako záložná cesta beží v HA lokálny
-add-on **TimeLimit Server** (`local_timelimit`) — self-hostovaný server pre
-open-source rodičovský dohľad [TimeLimit](https://timelimit.io), spolu
-s Mailpitom na prihlasovacie kódy. API je verejne na
-`https://timelimit.fabrici.xyz` (cez Caddy, bez VPN — appka ho potrebuje aj
-mimo domu), na LAN `http://192.168.1.102:8080`; maily len na LAN na
-`http://192.168.1.102:8025`; databáza v add-one MariaDB. Prihlasovacie kódy
-server pošle len adresám `@fabrici.xyz`, nikto cudzí si rodinu nezaloží.
-
-**Od 2026-10-03 beží zdieľaný čas tabletu cez TimeLimit.** Family Link
-integrácia od 2. 10. nefunguje (auth server vracia 403), všetky jej entity
-sú `unavailable` — tablet sa vtedy nerátal a PC dostával strop 0.
-`input_select.simona_tablet_zdroj` prepína zdroj (TimeLimit / Family Link);
-zmenu priniesol `ha/packages/patch-timelimit.py`.
-
-Súčasťou add-onu je **most do HA**: prihlási sa do rodiny ako ďalšie
-rodičovské zariadenie a cez MQTT discovery dáva do HA entity na dieťa
-(použité minúty, zostatok, zablokované, bez limitu, extra čas, strop na
-dnes) aj na kategórie. Cieľ je, aby TimeLimit postupne **úplne nahradil
-HAFamilyLink** — ten nemá pekné prepojenie do HA. Zdieľaný rozpočet
-(`simona_cas.yaml`) zatiaľ stále beží nad Family Linkom; mapovanie entít
-a ďalšie kroky sú v `ha/addons/timelimit/README.md`.
-
 ## Na čo si dať pozor
 
-- **Zmena v aplikácii prepíše aj rozvrh v HA, nielen dnešok.** Ak si chcel dať
-  výnimku len na dnes, oprav rozvrh na dashboarde — Telegram ti to pripomenie.
-  Na jednorazové pridanie času je lepší `/cas_add` alebo bonus vo Family Link.
-- **Denný limit musí byť vo Family Link zapnutý** (`switch.simona_fabriciova_daily_limit`).
-  Keď je vypnutý, Google nič nevynucuje a strop tabletu je len číslo.
-- **`switch.iplay_50` má obrátenú logiku, než by si čakal:** `on` znamená
-  *odomknuté*, `off` znamená *zamknuté* (v integrácii je `async_turn_on` =
-  unlock). Preto sú na dashboarde dve tlačidlá a nie prepínač — prepínač
-  nazvaný „Zamknúť tablet" zvádzal k tomu, že jeho vypnutím sa tablet práve
-  zamkol.
-- **Kým je tablet zamknutý ručne, Family Link neprijíma zmeny denného
-  limitu.** Strop tak zamrzne na poslednej hodnote a po odomknutí sa dorovná
-  až pri najbližšom prepočte. Dashboard aj `/cas` na to upozornia.
-- **Chromecast HD je mimo rozpočtu** — má vo Family Link vlastný limit.
-  Pozeranie Jellyfinu na TV teda čas na tablete ani na PC neujedá.
-- **Bonus dávaj cez Telegram**, nie v aplikácii Family Link. Cez Telegram sa
-  pridá do spoločného rozpočtu; bonus z appky sa síce tiež započíta
-  (`sensor.iplay_50_active_bonus`), ale platí len pre tablet.
+- **Na tablete musí byť v appke TimeLimit prihlásená Simonka.** Kto je
+  prihlásený, ukazuje dashboard („Na tablete prihlásený"); keď je tam rodič,
+  appka nevynucuje nič.
+- **Pravidlá appky (1 h / 3 h) sú len záchranná sieť.** Platia, keď HA alebo
+  most nebeží, a krátko po polnoci, kým HA nepošle cieľ nového dňa. Rozvrh
+  meň v HA, nie v appke.
+- **Ručný extra čas a strop na dnes sa pri zapnutom zdieľaní prepíšu.** Most
+  ich pri každej synchronizácii dorovná podľa cieľa z HA — čas pridávaj cez
+  spoločný rozpočet (`/cas_add`, tlačidlá v Telegrame a na dashboarde). Ručné
+  nastavenie vydrží, len keď je zdieľanie vypnuté.
+- **Keď most nebeží**, HA nič nemení — radšej žiadny zásah než omylom
+  nastavený limit 0. Entity TimeLimit sú vtedy `unavailable`, tablet ide
+  podľa toho, čo server dostal naposledy (spotreba na PC sa mu odvtedy
+  neodráta), a PC si drží posledný strop. Stav ukazuje `sensor.timelimit_most`.
+- **Dohľad Google na tablete vypína len rodič** — viď nasledujúcu sekciu.
+  Kým beží, môže tablet zastaviť skôr, než by ho zastavil TimeLimit.
+- **Chromecast HD a TV Philips sú mimo tohto systému.** Pozeranie Jellyfinu
+  na TV čas na tablete ani na PC neujedá.
 - **Keď je PC vypnutý**, HA sa naň pýta raz za päť minút a posledná známa
   spotreba ostáva platiť. Vypnutím PC sa teda čas nedá „vrátiť".
 - **Vypnutie PC nie je blokovanie.** Zapnúť si ho môže hneď znova — vtedy už
   chodia len upozornenia. Kto chce tvrdé blokovanie, musí to riešiť inak.
-- **Keď Family Link nedá dáta**, systém úmyselne nerobí nič — radšej žiadny
-  zásah než omylom nastavený limit 0.
+
+## Čo musí urobiť rodič na strane Google
+
+Z Home Assistanta je Family Link preč, na tablete však Googlov dohľad beží
+ďalej. Vypnúť sa dá len v appke Family Link na rodičovskom telefóne:
+
+- pre iPlay 50 vypnúť **denný limit** (Daily limit), **večierku**
+  (Downtime/Bedtime) a **školský čas** (School time) a tablet odomknúť,
+  **alebo**
+- ukončiť dohľad nad Google účtom Simony, ak to Google v jej veku dovolí.
+
+Inak beží Googlov limit na tablete **súbežne** s TimeLimit a vyhráva ten
+prísnejší. To isté rozhodnutie sa týka aj Chromecastu HD a TV Philips (nie
+sú súčasťou tohto systému). Pomocná appka Family Link
+(`com.google.android.apps.kids.familylinkhelper`) ostáva v Allowed Apps
+zámerne, kým sa dohľad Google neukončí.
+
+## História
+
+**Family Link (do 27. 9. 2026).** Pôvodne tablet riadil Google Family Link
+cez neoficiálnu integráciu z HACS
+[noiwid/HAFamilyLink](https://github.com/noiwid/HAFamilyLink). HA do neho
+priebežne zapisoval **override na dnešný deň** (`familylink.set_daily_limit`,
+teda `timeLimitOverrides:batchCreate`) a o 23:57 ho vracal na hodnotu
+rozvrhu. Týždenný rozvrh sa z Family Link vyčítať nedal — integrácia dávala
+len limit platný na dnes, vrátane nášho override. Keď si z neho polnočný
+reset bral rozpočet, čítal vlastný včerajší zvyšok a rozpočet sa scvrkával
+(180 → 75 → 61); odvtedy je rozvrh v HA. Zmenu limitu urobenú v appke HA
+preberal sám a vlastnú ozvenu rozoznával podľa posledných piatich zapísaných
+hodnôt (`input_text.simona_fl_zapisane`); medzi 00:00 a 00:10 do Family Link
+nezapisoval. Bonus pridaný v appke sa pripočítaval k rozpočtu.
+
+**Výpadok 27. 9. 2026.** Integrácia prestala fungovať o 10:28 (08:28 UTC),
+keď sa HA reštartoval a prvýkrát načítal verziu 2.2.1, ktorú HACS stiahol
+25. 9. o 17:38. Odvtedy boli všetky jej entity `unavailable` a config entry
+ostal v `setup_retry` (auth server vracal 403). Tablet sa do spoločného času
+nerátal a PC dostával strop 0.
+
+**Prechod na TimeLimit.** Self-hostovaný TimeLimit server bežal v HA najprv
+ako záložná cesta; od 3. 10. sa cez neho rátal zdieľaný čas tabletu,
+s prepínačom zdroja TimeLimit / Family Link. **4. 10. 2026** prešiel tablet
+na TimeLimit úplne (zdieľaný čas s PC ostal v HA, PC ďalej riadi Windows
+agent) a Family Link sa z Home Assistanta odstránil:
+integrácia, jej config entry a entity, add-on „Google Family Link Auth"
+(`92c20130_familylink-playwright`) aj jeho repozitár add-onov, položka v
+HACS, uložené cookies v `/share/familylink` a jej história v recorderi.
+Z balíkov vetvu Family Link odstránil `ha/packages/patch-bez-familylink.py`
+— zmizol prepínač zdroja, evidencia zápisov a preberanie zmeny z appky,
+večerné vracanie override aj pauza 00:00–00:10. Windows agent sa logikou
+nezmenil; verzia 1.2.1 len preformulovala dva komentáre, ktoré Family Link
+spomínali.
+
+Staršie záplaty `ha/packages/patch-*.py` (napr. `patch-rozvrh.py`,
+`patch-fl-zmena.py`, `patch-timelimit.py`) sú záznam histórie; ostávajú, ako
+boli, a Family Link v nich zostáva.

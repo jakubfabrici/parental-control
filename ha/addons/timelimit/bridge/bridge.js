@@ -540,7 +540,7 @@ async function setExtra(cats, minutes, increment) {
 // (casto jedno pravidlo na kazdy den) a ten sa NIKDY nemeni - HA si drzi
 // vlastne pravidlo len s dnesnym dnom (id si pamata v state.haRules) a plati
 // minimum zo vsetkych pravidiel, takze HA vie strop len stlacit nizsie;
-// zvysit sa da extra casom. Rovnako to robi dnesna Family Link integracia.
+// zvysit sa da extra casom.
 // Strop >= 1440 min alebo zaporny = pravidlo HA zmazat (ziadny strop).
 function haRuleOf(cat) {
     const id = (state.haRules || {})[cat.base.categoryId];
@@ -750,7 +750,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-8', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-9', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
