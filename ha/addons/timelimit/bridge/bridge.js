@@ -297,7 +297,15 @@ function applyServerStatus(d) {
     return needMore;
 }
 
-async function pull() {
+// tick a prikazy z MQTT mozu tahat naraz - pull ide vzdy jeden po druhom
+let pullChain = Promise.resolve();
+function pull() {
+    const p = pullChain.then(pullOnce, pullOnce);
+    pullChain = p.catch(() => { });
+    return p;
+}
+
+async function pullOnce() {
     for (let i = 0; i < 4; i++) {
         const d = await post('/sync/pull-status', { deviceAuthToken: state.deviceAuthToken, status: clientStatus() });
         const more = applyServerStatus(d);
@@ -713,27 +721,51 @@ async function ensureRelaxedPrimaryDevice() {
     }
 }
 
-// Doplnok servera (patches/ha-sync.js) pocuva na 127.0.0.1:8081: POST /sync
-// hned poziada pripojene detske zariadenia o synchronizaciu a minutu sleduje,
-// ci na nich pribuda spotreba. HA to vola pri zapnuti obrazovky tabletu
-// (prikaz {"action":"sync"}, aj tlacidlo Synchronizovat). Potom pockame, kym
-// tablet odosle, nech nasledny pull uz nesie novu spotrebu.
-function wakeChildDevices() {
+// Doplnok servera (patches/ha-sync.js) pocuva na 127.0.0.1:8081:
+//   POST /sync                     - hned poziadat pripojene detske zariadenia
+//                                    o synchronizaciu (prikaz {"action":"sync"},
+//                                    tlacidlo Synchronizovat)
+//   POST /screen?state=on|off|unknown - stav obrazovky tabletu z HA (senzor
+//                                    Interactive z companion appky), prikaz
+//                                    {"action":"screen","state":"on"}
+//   GET  /status                   - kto je pripojeny, kedy naposledy odoslal
+// Po prebudeni chvilu pockame, kym tablet odosle, nech nasledny pull uz nesie
+// novu spotrebu.
+function haSync(method, path) {
     return new Promise((resolve) => {
-        const req = http.request({ host: '127.0.0.1', port: Number(process.env.HA_SYNC_PORT) || 8081, path: '/sync', method: 'POST', timeout: 3000 }, (res) => {
+        const req = http.request({ host: '127.0.0.1', port: Number(process.env.HA_SYNC_PORT) || 8081, path, method, timeout: 3000 }, (res) => {
             let body = '';
             res.on('data', (c) => { body += c; });
             res.on('end', () => {
-                let woken = 0;
-                try { woken = JSON.parse(body).woken || 0; } catch (e) { /* nic */ }
-                log('prebudenie tabletu: poziadanych zariadeni', woken);
-                if (woken > 0) setTimeout(resolve, 5000); else resolve();
+                try { resolve(JSON.parse(body)); } catch (e) { resolve(null); }
             });
         });
         req.on('timeout', () => req.destroy(new Error('timeout')));
-        req.on('error', (e) => { warn('prebudenie tabletu zlyhalo:', e.message); resolve(); });
+        req.on('error', (e) => { warn('doplnok servera ' + path + ':', e.message); resolve(null); });
         req.end();
     });
+}
+
+async function wakeChildDevices() {
+    const r = await haSync('POST', '/sync');
+    const woken = (r && r.woken) || 0;
+    log('prebudenie tabletu: poziadanych zariadeni', woken);
+    if (woken > 0) await sleep(5000);
+}
+
+async function reportScreen(st) {
+    if (!['on', 'off', 'unknown'].includes(st)) throw new Error('screen potrebuje state on|off|unknown');
+    const r = await haSync('POST', '/screen?state=' + st);
+    const woken = (r && r.woken) || 0;
+    log('obrazovka tabletu', st + ':', 'poziadanych zariadeni', woken);
+    if (woken > 0) await sleep(5000);
+}
+
+// stav synchronizacie zariadeni (pre senzory v HA); necha sa aj pri chybe
+let syncStatus = null;
+async function refreshSyncStatus() {
+    const r = await haSync('GET', '/status');
+    if (r && Array.isArray(r.devices)) syncStatus = r;
 }
 
 async function addChild(name, timeZone) {
@@ -794,7 +826,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-11', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-12', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
@@ -825,6 +857,20 @@ function publishDiscovery() {
             name: 'Zariadenie ' + dev.name, icon: 'mdi:cellphone', device: bridgeDevice,
             state_topic: BASE + '/device/' + dev.deviceId + '/state', value_template: '{{ value_json.user }}',
             json_attributes_topic: BASE + '/device/' + dev.deviceId + '/state'
+        });
+        if (dev.deviceId === state.deviceId) continue;
+        // pripojenie na websocket a posledne odoslanie (doplnok servera ha-sync)
+        mark('binary_sensor', oid + '_connected');
+        discover('binary_sensor', oid + '_connected', {
+            name: dev.name + ' – pripojený', device_class: 'connectivity', device: bridgeDevice,
+            state_topic: BASE + '/device/' + dev.deviceId + '/sync',
+            value_template: "{{ 'ON' if value_json.connected else 'OFF' }}",
+            json_attributes_topic: BASE + '/device/' + dev.deviceId + '/sync'
+        });
+        mark('sensor', oid + '_last_upload');
+        discover('sensor', oid + '_last_upload', {
+            name: dev.name + ' – posledné odoslanie', device_class: 'timestamp', icon: 'mdi:cloud-upload-outline', device: bridgeDevice,
+            state_topic: BASE + '/device/' + dev.deviceId + '/sync', value_template: '{{ value_json.last_upload or None }}'
         });
     }
 
@@ -944,6 +990,16 @@ function publishState() {
         ha_rules: Object.keys(state.haRules || {}).length
     });
     for (const dev of state.devices) {
+        if (dev.deviceId !== state.deviceId && syncStatus) {
+            const d = syncStatus.devices.find((x) => x.deviceId === dev.deviceId);
+            const prev = (state.lastUploads || {})[dev.deviceId] || null;
+            const last = d && d.lastUploadAt ? d.lastUploadAt : prev;
+            state.lastUploads = Object.assign(state.lastUploads || {}, { [dev.deviceId]: last });
+            pub(BASE + '/device/' + dev.deviceId + '/sync', {
+                connected: !!d, last_upload: last, connected_since: d ? d.connectedAt : null,
+                last_nudge: d ? d.lastNudgeAt : null, screen: syncStatus.screen, screen_since: syncStatus.screenAt
+            });
+        }
         const u = userById(dev.currentUserId);
         pub(BASE + '/device/' + dev.deviceId + '/state', {
             user: u ? u.name : 'nikto', user_id: dev.currentUserId || '', model: dev.model, name: dev.name,
@@ -989,6 +1045,10 @@ async function handleCommand(cmd) {
     const action = cmd.action;
     if (action === 'sync') {
         await wakeChildDevices();
+        return;
+    }
+    if (action === 'screen') {
+        await reportScreen(cmd.state);
         return;
     }
     if (action === 'enroll') {
@@ -1132,6 +1192,7 @@ async function tick() {
         }
         try {
             await pull();
+            await refreshSyncStatus();
             await ensureRelaxedPrimaryDevice();
             await cleanupHaRules();
             await enforceTargets();
