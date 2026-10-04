@@ -188,7 +188,7 @@ zo včerajšieho rozpočtu (minúty nového dňa sú vtedy takmer nulové); pre�
 nie o 00:00, je v hlavnom `README.md` (Polnoc). Tie isté pravidlá appky sú aj
 **poistka**, keby HA nebežal — bez cieľa z HA platí len rozvrh appky.
 
-**Baterka tabletu:** synchronizácia mosta (`sync_interval`, 60 s) beží len
+**Baterka tabletu:** synchronizácia mosta (`sync_interval`, 15 s) beží len
 medzi HA a serverom, tablet nebudí. Tablet zobudí až push zmeny — server mu
 vtedy pošle „should sync" cez websocket. Preto sa sprísnenie stropu (PC
 ujedá z rozpočtu) posiela po **5-minútových krokoch** a presne až v
@@ -199,6 +199,47 @@ spoločný rozpočet aj tak nikdy neprekročí.
 Pri aktívnom cieli most prepisuje ručný strop a extra čas kategórie — čas sa
 pridáva zvýšením spoločného rozpočtu (`script.simona_cas_pridaj`, Telegram
 +30/+60 a `/cas_add`, dashboard).
+
+### Aktuálnosť času tabletu v HA
+
+Appka TimeLimit si spotrebovaný čas zapisuje každých 30 s, ale **odosiela ho
+s najnižšou prioritou** — najskôr 10 minút po poslednej synchronizácii
+(`SyncUtil`, priorita `VeryUnimportant`). A pri zhasnutej obrazovke sa
+odpojí od servera (do ~1 s) a nesynchronizuje vôbec, kým sa obrazovka zase
+nezapne. Bez zásahu by HA videl čas tabletu oneskorený až o 10 minút a
+posledné minúty pred zhasnutím až do ďalšieho zapnutia.
+
+Preto:
+
+1. **Server** (doplnok `patches/ha-sync.js`, zapojený pri builde cez
+   `patches/apply-ha-sync.js`): kým je zariadenie dieťaťa pripojené, pošle mu
+   každých `tablet_sync_active` sekúnd (30 s) pokyn `should sync`
+   (isImportant). Appka hneď odošle čakajúcu spotrebu — rovnako ako po každej
+   zmene od rodiča. Do databázy sa nič nezapisuje. Keď tablet dve kolá nič
+   nové neposlal, server ho žiada len raz za `tablet_sync_idle` (120 s).
+2. **Most** ťahá zmeny zo servera každých `sync_interval` sekúnd (15 s).
+3. **Tablet — raz ručne:** v appke TimeLimit *About → Error diagnose →
+   Experimental flags → „Keep connected when the screen is off"* (potvrdí sa
+   rodičovským prihlásením). Appka potom ostane pripojená aj pri zhasnutej
+   obrazovke, takže sa do HA dostane aj spotreba tesne pred zhasnutím; server
+   ju vtedy žiada riedko (raz za 2 minúty), čo baterku zaťaží len málo.
+
+Výsledok: pri používaní je čas tabletu v HA oneskorený najviac o ~1 minútu
+(30 s zápis + 30 s pokyn + 15 s most); po zhasnutí obrazovky (s prepínačom
+z bodu 3) do ~1 minúty dorazí všetko okrem posledného nezapísaného úseku
+kratšieho ako 30 s, ten príde pri ďalšom zapnutí. Bez prepínača chýba po
+zhasnutí najviac ~1 minúta, kým sa obrazovka znova nezapne.
+
+### Pravidlo „jedno aktuálne zariadenie"
+
+TimeLimit povolí appky s limitom len na zariadení, ktoré má dieťa na serveri
+ako aktuálne. 4. 10. 2026 sa lokálna kópia na tablete rozišla so serverom a
+tablet zablokoval všetko s limitom („This device is not selected as current
+device"); tlačidlo v appke to neopraví (server odpovie „assigned to other
+device"). Simonka má jediné zariadenie a čas sa ráta na serveri, takže
+pravidlo nič nechráni — most ho deťom drží uvoľnené
+(`SET_RELAX_PRIMARY_DEVICE`, funkcia `ensureRelaxedPrimaryDevice`); pri plnej
+verzii (`always_pro`) to appka berie ako „každé zariadenie je aktuálne".
 
 ### Strop na dnes a pravidlá appky
 

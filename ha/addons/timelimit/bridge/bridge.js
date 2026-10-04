@@ -692,6 +692,26 @@ async function cleanupHaRules() {
     }
 }
 
+// Pravidlo "jedno aktualne zariadenie": appka povoli obmedzene appky len na
+// zariadeni, ktore ma dieta na serveri ako aktualne (currentDevice). Ked sa
+// lokalna kopia na tablete rozide so serverom (4. 10. 2026 po opatovnom
+// prihlaseni dietata), tablet zablokuje vsetko s limitom ("This device is not
+// selected as current device") a tlacidlom v appke sa to opravit neda - server
+// odpovie "assigned to other device". Deti tu maju po jednom zariadeni a cas
+// sa rata na serveri, takze pravidlo nic nechrani: drzime ho uvolnene
+// (SET_RELAX_PRIMARY_DEVICE), co appka pri plnej verzii berie ako "kazde
+// zariadenie je aktualne".
+async function ensureRelaxedPrimaryDevice() {
+    const actions = children()
+        .filter((c) => c.relaxPrimaryDevice === false)
+        .map((c) => ({ type: 'SET_RELAX_PRIMARY_DEVICE', userId: c.id, relax: true }));
+    if (actions.length > 0) {
+        log('uvolnujem pravidlo jedneho aktualneho zariadenia pre', actions.length, 'deti');
+        await pushActions(actions);
+        await pull();
+    }
+}
+
 async function addChild(name, timeZone) {
     const userId = genId();
     await pushActions([{ type: 'ADD_USER', name, userId, userType: 'child', timeZone: timeZone || 'Europe/Bratislava' }]);
@@ -750,7 +770,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-9', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-10', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
@@ -1085,6 +1105,7 @@ async function tick() {
         }
         try {
             await pull();
+            await ensureRelaxedPrimaryDevice();
             await cleanupHaRules();
             await enforceTargets();
         } catch (e) {

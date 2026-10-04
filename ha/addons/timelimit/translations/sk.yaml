@@ -36,7 +36,14 @@ configuration:
     name: Kategória „vždy povolené"
     description: Názov kategórie v appke bez časových pravidiel. Presun balíka do nej = aplikácia je povolená stále.
   sync_interval:
-    name: Interval synchronizácie (s)
+    name: Interval synchronizácie mosta (s)
+    description: Ako často most ťahá zmeny zo servera do HA. 15 s = HA vidí čas tabletu najneskôr pár sekúnd po tom, čo ho tablet odošle.
+  tablet_sync_active:
+    name: Synchronizácia tabletu pri používaní (s)
+    description: Kým je tablet pripojený a posiela spotrebu, server ho takto často požiada o synchronizáciu (appka sama posiela spotrebu až po 10 minútach).
+  tablet_sync_idle:
+    name: Synchronizácia tabletu v nečinnosti (s)
+    description: Keď tablet dve kolá nič neposlal (obrazovka zhasnutá), server ho žiada riedko – šetrí to batériu. Platí len pri zapnutom „Keep connected when the screen is off“ na tablete.
   mqtt_host:
     name: MQTT – hostiteľ
     description: Prázdne = vypýtať od Supervisora (Mosquitto add-on).
