@@ -7,7 +7,7 @@
 #
 # Tlacidla volaju skripty z packages/simona_cas.yaml, lebo karta typu button
 # nevie odovzdat parameter priamo do input_number.set_value. Sekcia Tablet
-# bezi nad TimeLimit (add-on + most), nie nad Family Linkom.
+# bezi nad TimeLimit (add-on + most).
 
 views:
   - title: Čas
@@ -101,8 +101,6 @@ views:
                 secondary_info: last-changed
               - entity: input_boolean.simona_zdielany_cas
                 name: Zdieľanie času aktívne
-              - entity: input_select.simona_tablet_zdroj
-                name: Tablet sa ráta z
 
           - type: conditional
             conditions:
@@ -193,9 +191,8 @@ views:
               text: Naozaj ukončiť čas? Tablet sa hneď zamkne.
 
       # -- Tyzdenny rozvrh ----------------------------------------------------
-      # Kopia rozvrhu z Family Link - ten sa cez integraciu vycitat NEDA
-      # (coordinator vidi len hodnotu platnu na dnes, vratane nasho override).
-      # O 00:05 sa z tohto rozvrhu naplni rozpocet na novy den.
+      # Rozvrh v HA je jediny zdroj pravdy. O 00:06 sa z neho naplni
+      # rozpocet na novy den (balik simona_cas.yaml, polnocny reset).
       - type: grid
         cards:
           - type: heading
@@ -210,14 +207,10 @@ views:
               zajtra {{ state_attr('sensor.simona_rozvrh_dnes','zajtra') | int(0) }} min.
 
 
-              <small>Nový rozpočet sa z rozvrhu naplní o 00:05.
-              {% if is_state('input_select.simona_tablet_zdroj','TimeLimit') %}Tablet
-              ide cez TimeLimit: HA mu každú chvíľu nastaví, koľko smie dnes
+              <small>Nový rozpočet sa z rozvrhu naplní o 00:06. Tablet ide
+              cez TimeLimit: HA mu každú chvíľu nastaví, koľko smie dnes
               celkovo (rozpočet mínus PC). Pravidlá v appke (1 h / 3 h) sú len
-              poistka, keby HA nebežal — keď ich zmeníš, uprav aj rozvrh tu.{% else %}Keď
-              zmeníš limit v aplikácii Family Link, HA to prevezme sem samo (a
-              napíše ti o tom). Opačne to neplatí — zmena tu **neprepíše rozvrh
-              v aplikácii**.{% endif %}</small>
+              poistka, keby HA nebežal — keď ich zmeníš, uprav aj rozvrh tu.</small>
 
           - type: entities
             entities:
@@ -235,16 +228,10 @@ views:
                 name: Sobota
               - entity: input_number.simona_rozvrh_ne
                 name: Nedeľa
-              # Diagnostika: co sme naposledy poslali do Family Link. Podla
-              # tohto zoznamu automatizacia rozozna vlastnu ozvenu od zmeny,
-              # ktoru urobil rodic v aplikacii.
-              - entity: input_text.simona_fl_zapisane
-                name: Naposledy zapísané do FL
 
       # -- Tablet (TimeLimit) ---------------------------------------------------
       # Entity dava most v add-one TimeLimit (ha/addons/timelimit/bridge/)
-      # cez MQTT discovery. Family Link entity (iplay_50_*, switch.iplay_50,
-      # sensor.simona_fabriciova_daily_screen_time) tu uz nie su.
+      # cez MQTT discovery.
       # Zoznam nainstalovanych aplikacii tablet posiela sifrovane, most vidi
       # len baliky priradene do kategorii - preto vyber + textove pole.
       - type: grid

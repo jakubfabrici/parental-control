@@ -26,7 +26,6 @@ script:
       - variables:
           text: >-
             {% set rozpocet = states('input_number.simona_rozpocet_dnes') | int(0) %}
-            {% set bonus = states('sensor.iplay_50_active_bonus') | int(0) %}
             {% set celkom = states('sensor.simona_rozpocet_celkom') | int(0) %}
             {% set tablet = states('sensor.simona_tablet_pouzite') | int(0) %}
             {% set pc = states('sensor.simona_pc_zapocitane') | int(0) %}
@@ -35,15 +34,15 @@ script:
             {% set rozvrh = states('sensor.simona_rozvrh_dnes') | int(0) %}
             {% set den = state_attr('sensor.simona_rozvrh_dnes', 'den') %}
             ⏱ <b>Spoločný čas — Simonka</b>
-            {{ '\n' }}Rozpočet dnes: <b>{{ celkom }} min</b>{% if bonus > 0 %} (základ {{ rozpocet }} + bonus {{ bonus }}){% endif %}
+            {{ '\n' }}Rozpočet dnes: <b>{{ celkom }} min</b>
             {{ '\n' }}Použité: <b>{{ tablet + pc }} min</b> — 📱 tablet {{ tablet }} · 🖥 PC {{ pc }}
             {{ '\n' }}Zostáva: <b>{{ zostava }} min</b>
             {{ '\n' }}
             {{ '\n' }}<i>Rozvrh na dnes ({{ den }}): {{ rozvrh }} min{% if rozpocet != rozvrh %} · dnes ručne upravené na {{ rozpocet }} min{% endif %}</i>
             {{ '\n' }}<i>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit') | int(0) }} min · PC povolené {{ states('sensor.simona_pc_povolene') | int(0) }} min</i>
             {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}{% if is_state('input_boolean.simona_bez_limitu','on') %}
-            {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}{% if is_state('switch.iplay_50','off') %}
-            {{ '\n' }}🔒 <b>Tablet zamknutý ručne</b> — kým to trvá, Family Link neprijme zmeny limitu{% endif %}
+            {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}{% if is_state('switch.timelimit_simonka_zablokovane','on') %}
+            {{ '\n' }}🔒 <b>Tablet je zablokovaný</b> (TimeLimit){% endif %}
           klavesnica:
             - "🔄 Obnoviť:/pct_stav"
             - "➕15:/pct_add15, ➕30:/pct_add30, ➕60:/pct_add60"
