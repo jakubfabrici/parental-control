@@ -439,8 +439,9 @@ automation:
   # ohlasi minuty noveho dna pri prvej synchronizacii po polnoci (raz za
   # minutu). O 00:06 su obe strany davno na novom dni, takze novy rozpocet
   # sa nikdy nestretne so vcerajsimi minutami (falosne "cas sa minul" a
-  # vypnutie PC o polnoci). Do 00:06 plati vcerajsi rozpocet - minuty noveho
-  # dna su vtedy takmer nulove, takze to je nanajvys o chvilu volnejsie.
+  # vypnutie PC o polnoci). Do 00:06 HA tabletu ciel neposiela (viz
+  # simona_cas_sync_tabletu_timelimit) a tablet ide podla zachrannej siete
+  # appky.
   - id: simona_cas_polnocny_reset
     alias: "Simona čas: polnočný reset rozpočtu"
     mode: single
@@ -546,6 +547,11 @@ automation:
   # zdielany cas vypnuty, ciel zrusime (clear_total) a plati len rozvrh appky.
   # Ciel plati len na den, v ktory prisiel - vcerajsi ciel aj pravidlo HA
   # most po polnoci zahodi sam.
+  #
+  # Od 00:00 do 00:05 sa neposiela nic: PC je v noci vacsinou vypnute a do
+  # resetu o 00:06 drzi vcerajsie minuty, ciel na novy den by tak mohol byt
+  # prisnejsi (krajne 0). Tablet ide medzitym podla zachrannej siete appky;
+  # prvy ciel noveho dna ide hned po resete (zmena ciela), poistne o 00:06:30.
   - id: simona_cas_sync_tabletu_timelimit
     alias: "Simona čas: strop tabletu cez TimeLimit"
     mode: single
@@ -557,7 +563,11 @@ automation:
           - input_boolean.simona_zdielany_cas
       - trigger: time_pattern
         minutes: "/5"
+      - trigger: time
+        at: "00:06:30"
     conditions:
+      - condition: template
+        value_template: "{{ not (now().hour == 0 and now().minute < 6) }}"
       - condition: template
         value_template: "{{ has_value('sensor.simona_tablet_cielovy_limit') }}"
     actions:
@@ -810,6 +820,13 @@ automation:
       - condition: numeric_state
         entity_id: sensor.simona_cas_zostava
         below: 1
+      # navrat zostatku z nedostupnosti (restart add-onu TimeLimit) nie je
+      # "cas sa prave minul"
+      - condition: template
+        value_template: >-
+          {{ trigger.platform != 'numeric_state'
+             or (trigger.from_state is not none
+                 and trigger.from_state.state not in ['unknown', 'unavailable']) }}
       # Ked PC nebezi, nie je co vypinat - vypne sa az ked ho zapne.
       - condition: state
         entity_id: binary_sensor.simona_pc_online
@@ -1039,11 +1056,16 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_bez_limitu
         state: "off"
+      # navrat z nedostupnosti (restart add-onu TimeLimit) nie je prekrocenie
+      - condition: template
+        value_template: >-
+          {{ trigger.from_state is not none
+             and trigger.from_state.state not in ['unknown', 'unavailable'] }}
     actions:
       - variables:
           sprava: >-
             {% set t = states('sensor.simona_tablet_pouzite') | int(0) %}
-            {% set p = states('input_number.simona_pc_pouzite') | int(0) %}
+            {% set p = states('sensor.simona_pc_zapocitane') | int(0) %}
             {% if trigger.id == '0' %}⛔ Simonke sa minul spoločný čas
             {% else %}⏳ Simonke zostáva {{ trigger.id }} min spoločného času
             {% endif %}(tablet {{ t }} + PC {{ p }} z {{ states('sensor.simona_rozpocet_celkom') | int(0) }} min).

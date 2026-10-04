@@ -129,11 +129,12 @@ Chyby idú na `timelimit/bridge/error` a do logu add-onu.
 „Vždy povolené" je kategória v appke bez časových pravidiel (option
 `always_allowed_category`, predvolene `Allowed Apps`). Pridať aplikáciu =
 presunúť jej balík do tejto kategórie (`ADD_CATEGORY_APPS` balík zároveň
-odoberie z ostatných kategórií dieťaťa). Odobrať = balík z kategórie
-vyradiť; nezaradený padne do predvolenej kategórie dieťaťa
-(`categoryForNotAssignedApps`). Keby predvolená nebola nastavená a dieťa
-malo len jednu ďalšiu kategóriu, most ho presunie do nej, aby ho appka
-nezačala úplne blokovať.
+odoberie z ostatných kategórií dieťaťa). Odobrať = balík **presunúť** do
+predvolenej kategórie dieťaťa (`categoryForNotAssignedApps`, u Simonky
+„Ostatné aplikácie"), keď nie je nastavená, tak do jedinej ďalšej vrcholovej
+kategórie. Len vyradiť ho nestačí: nezaradená **systémová** appka (YouTube,
+Chrome, Play Store …) padne v appke najprv do kategórie
+`.dummy.system_image`, a tá je v Allowed Apps — ostala by povolená stále.
 
 **Nastavenie u Simonky (od 2026-10-03):**
 
@@ -181,12 +182,13 @@ uprace a platí len rozvrh appky (1 h / 3 h).
 **Polnoc:** cieľ aj pravidlo HA platia len pre deň, na ktorý vznikli. Pri
 prvej synchronizácii po polnoci most včerajší cieľ zahodí a pravidlo HA so
 včerajším dňom zmaže; extra čas je v TimeLimit tiež len na konkrétny deň.
-Kým HA nepošle prvý cieľ nového dňa (pri zmene alebo pri päťminútovom
-opakovaní), beží tablet len na vlastných pravidlách appky (1 h / 3 h). Do
-00:06, keď sa naplní nový rozpočet a vynulujú počítadlá, sa cieľ počíta ešte
-zo včerajšieho rozpočtu (minúty nového dňa sú vtedy takmer nulové); prečo
-nie o 00:00, je v hlavnom `README.md` (Polnoc). Tie isté pravidlá appky sú aj
-**poistka**, keby HA nebežal — bez cieľa z HA platí len rozvrh appky.
+Od 00:00 do 00:05 HA cieľ neposiela — PC je v noci väčšinou vypnuté a do
+resetu o 00:06 drží včerajšie minúty, cieľ na nový deň by tak mohol byť
+prísnejší (krajne 0). Tablet ide medzitým len podľa vlastných pravidiel appky
+(1 h / 3 h); prvý cieľ nového dňa ide hneď po resete o 00:06 (poistne
+o 00:06:30). Prečo reset nie o 00:00, je v hlavnom `README.md` (Polnoc). Tie
+isté pravidlá appky sú aj **poistka**, keby HA nebežal — bez cieľa z HA
+platí len rozvrh appky.
 
 **Baterka tabletu:** synchronizácia mosta (`sync_interval`, 15 s) beží len
 medzi HA a serverom, tablet nebudí. Tablet zobudí až push zmeny — server mu
@@ -265,6 +267,19 @@ device"). Simonka má jediné zariadenie a čas sa ráta na serveri, takže
 pravidlo nič nechráni — most ho deťom drží uvoľnené
 (`SET_RELAX_PRIMARY_DEVICE`, funkcia `ensureRelaxedPrimaryDevice`); pri plnej
 verzii (`always_pro`) to appka berie ako „každé zariadenie je aktuálne".
+
+### Dozor nad TimeLimit na tablete
+
+Bez Family Link je TimeLimit jediná zábrana na tablete a jeho vlastné
+upozornenia (manipulácia, odinštalovanie, odobraté oprávnenia) chodia len
+rodičovi s appkou TimeLimit alebo mailom — a mail tu končí v Mailpite. Most
+preto z údajov o zariadení (úroveň ochrany, oprávnenia, príznaky
+manipulácie) robí `binary_sensor.timelimit_iplay_50_manipulacia` (atribút
+`problems` = dôvody) a `ha/packages/simona_tablet_ochrana.yaml` posiela obom
+rodičom Telegram — aj keď na tablete v TimeLimit dlhšie než 2 minúty nie je
+prihlásená Simonka. Ochrana tabletu je dnes len *simple device admin*; dá sa
+zvýšiť na *password device admin*, prípadne *device owner* (vyžaduje reset
+tabletu a adb) — potom TimeLimit zabráni aj odinštalovaniu a resetu.
 
 ### Strop na dnes a pravidlá appky
 

@@ -494,12 +494,18 @@ async function removeAlwaysAllowed(child, packageName) {
     if (!allowed) throw new Error('dieta ' + child.name + ' nema kategoriu "' + alwaysAllowedTitle + '"');
     const pkg = String(packageName || '').trim();
     if (!(allowed.apps || []).includes(pkg)) throw new Error(pkg + ' nie je medzi vzdy povolenymi');
-    // Nepriradeny balik padne do categoryForNotAssignedApps; ked ziadna nie je
-    // nastavena, appka ho blokuje. Ked ma dieta prave jednu dalsiu vrcholovu
-    // kategoriu, presunieme ho radsej tam (typicky "hry s limitom").
+    // Balik treba PRESUNUT do kategorie s limitom, nie len odobrat: systemova
+    // appka (YouTube, Chrome ...) bez priradenia padne v appke najprv do
+    // kategorie '.dummy.system_image' - a ta je tu v "Allowed Apps", takze by
+    // ostala povolena stale. Ciel: predvolena kategoria dietata
+    // (categoryForNotAssignedApps), inak jedina dalsia vrcholova kategoria.
     const otherTops = topCatsOf(child.id).filter((c) => c.base.categoryId !== allowed.base.categoryId);
-    if (!child.categoryForNotAssignedApps && otherTops.length === 1) {
-        await pushActions([{ type: 'ADD_CATEGORY_APPS', categoryId: otherTops[0].base.categoryId, packageNames: [pkg] }]);
+    const def = child.categoryForNotAssignedApps && child.categoryForNotAssignedApps !== allowed.base.categoryId
+        ? state.categories[child.categoryForNotAssignedApps] : null;
+    const target = def || (otherTops.length === 1 ? otherTops[0] : null);
+    if (target) {
+        // ADD_CATEGORY_APPS balik zaroven odoberie z inych kategorii dietata
+        await pushActions([{ type: 'ADD_CATEGORY_APPS', categoryId: target.base.categoryId, packageNames: [pkg] }]);
     } else {
         await pushActions([{ type: 'REMOVE_CATEGORY_APPS', categoryId: allowed.base.categoryId, packageNames: [pkg] }]);
     }
@@ -826,7 +832,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-12', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-13', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
@@ -866,6 +872,13 @@ function publishDiscovery() {
             state_topic: BASE + '/device/' + dev.deviceId + '/sync',
             value_template: "{{ 'ON' if value_json.connected else 'OFF' }}",
             json_attributes_topic: BASE + '/device/' + dev.deviceId + '/sync'
+        });
+        mark('binary_sensor', oid + '_manipulation');
+        discover('binary_sensor', oid + '_manipulation', {
+            name: dev.name + ' – manipulácia', device_class: 'problem', icon: 'mdi:shield-alert-outline', device: bridgeDevice,
+            state_topic: BASE + '/device/' + dev.deviceId + '/protection',
+            value_template: "{{ 'ON' if value_json.problem else 'OFF' }}",
+            json_attributes_topic: BASE + '/device/' + dev.deviceId + '/protection'
         });
         mark('sensor', oid + '_last_upload');
         discover('sensor', oid + '_last_upload', {
@@ -976,6 +989,25 @@ function publishDiscovery() {
     }
 }
 
+// Ochrana TimeLimit na zariadeni dietata: server posiela v zozname zariadeni
+// uroven ochrany, opravnenia a priznaky manipulacie. Bez Family Link je
+// TimeLimit jedina zabrana na tablete a jeho vlastne upozornenia idu len
+// rodicovi s appkou TimeLimit (alebo mailom do Mailpitu) - preto ich davame
+// do HA (binary_sensor ...manipulacia), odtial idu do Telegramu.
+function deviceProblems(dev) {
+    const p = [];
+    if (dev.hadManipulation) p.push('zaznamenaná manipulácia');
+    if (dev.reportUninstall) p.push('hlási odinštalovanie');
+    if (dev.tDisablingAdmin) p.push('pokus o vypnutie správcu zariadenia');
+    if (dev.cProtectionLevel !== dev.hProtectionLevel) p.push('ochrana znížená (' + dev.cProtectionLevel + ', predtým ' + dev.hProtectionLevel + ')');
+    if (dev.cUsageStats !== dev.hUsageStats) p.push('odobratý prístup k používaniu aplikácií');
+    if (dev.cNotificationAccess !== dev.hNotificationAccess) p.push('odobratý prístup k upozorneniam');
+    if (dev.cOverlay !== dev.hOverlay) p.push('odobraté zobrazenie cez iné aplikácie');
+    if (dev.wasAsEnabled && !dev.asEnabled) p.push('vypnutá služba dostupnosti');
+    if (dev.cAppVersion < dev.hAppVersion) p.push('staršia verzia appky (' + dev.cAppVersion + ' < ' + dev.hAppVersion + ')');
+    return p;
+}
+
 function publishState() {
     const now = Date.now();
     pub(BASE + '/bridge/state', {
@@ -998,6 +1030,15 @@ function publishState() {
             pub(BASE + '/device/' + dev.deviceId + '/sync', {
                 connected: !!d, last_upload: last, connected_since: d ? d.connectedAt : null,
                 last_nudge: d ? d.lastNudgeAt : null, screen: syncStatus.screen, screen_since: syncStatus.screenAt
+            });
+        }
+        if (dev.deviceId !== state.deviceId) {
+            const problems = deviceProblems(dev);
+            pub(BASE + '/device/' + dev.deviceId + '/protection', {
+                problem: problems.length > 0, problems, protection: dev.cProtectionLevel,
+                protection_highest: dev.hProtectionLevel, usage_stats: dev.cUsageStats,
+                notification_access: dev.cNotificationAccess, overlay: dev.cOverlay,
+                accessibility: !!dev.asEnabled, app_version: dev.cAppVersion
             });
         }
         const u = userById(dev.currentUserId);
