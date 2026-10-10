@@ -15,8 +15,8 @@ $root = $PSScriptRoot
 # aktualizacii z OMV). Ked chyba, je to rucna instalacia.
 $AgentVersion = try {
   $vf = Join-Path (Split-Path $root -Parent) 'VERSION'
-  if (Test-Path $vf) { (Get-Content $vf -Raw).Trim() } else { '1.2.0' }
-} catch { '1.2.0' }
+  if (Test-Path $vf) { (Get-Content $vf -Raw).Trim() } else { '1.2.2' }
+} catch { '1.2.2' }
 
 # ---- DPI awareness (pred meranim obrazovky) ----
 try {
@@ -262,9 +262,10 @@ function Invoke-Warnings($s) {
   try {
     if (-not $Script:LastActive) { return }          # nikto pri PC nie je, netreba
     $cap = [int]$s.limitMinutes + [int]$s.bonusMinutes
-    # Nulovy strop = nevieme, kolko ma dnes k dispozicii (napr. Family Link
-    # data vypadli a HA poslala -1). Vtedy sa NEVYHLASUJE nic - inak by dieta
-    # dostalo "cas sa minul" len preto, ze zlyhalo cudzie API.
+    # Nulovy strop = nevieme, kolko ma dnes k dispozicii (napr. HA nema minuty
+    # tabletu, lebo nebezi most TimeLimit, a poslala -1). Vtedy sa
+    # NEVYHLASUJE nic - inak by dieta dostalo "cas sa minul" len preto, ze
+    # zlyhal zdroj dat.
     if ($cap -le 0) { return }
     $remain = [math]::Max(0, $cap - [math]::Floor($s.usedSeconds / 60))
     if ($null -eq $s.warnedStep) { $s | Add-Member -NotePropertyName warnedStep -NotePropertyValue 9999 -Force }
@@ -363,6 +364,14 @@ function Invoke-Tick {
   } catch { Log "Tick chyba: $_" WARN }
 }
 
+# Doba od startu Windows v s (GetTickCount je 32-bit a pretecie po 49,7 dna -
+# HA ju pouziva len na rozoznanie noveho zapnutia PC od zruseneho vypnutia).
+function Get-UptimeSec {
+  $t = [long][Environment]::TickCount
+  if ($t -lt 0) { $t += 4294967296 }
+  [int][math]::Floor($t / 1000)
+}
+
 # Hlasenie do HA. Bezi v casovacovej vetve slucky, nikdy nie v ceste HTTP
 # odpovede - inak by sme si vyrobili presne ten problem, ktory riesime.
 # Chyba sa loguje len pri prvom, piatom a dvadsiatom zlyhani po sebe: ked je
@@ -383,6 +392,7 @@ function Send-Push {
       version    = $AgentVersion
       needs_seed = [bool]$Script:StateLost
       lag_max    = [int]$Script:LagMaxToday
+      uptime_sec = Get-UptimeSec
     }
     # idle_sec/age_sec len z platnej snimky - nech HA radsej nedostane nic,
     # nez vymysel. Bez nich si HA necha predoslu znacku vstupu.
@@ -588,9 +598,10 @@ function Handle-Request($ctx){
         # nie su - to je cela pointa zmeny.
         $st = $Script:State
         # ^[1-9]\d*$, nie ^\d+$: "0" alebo "-1" znamena, ze HA strop nepozna
-        # (vypadli data z Family Link). Vtedy si drzime posledny znamy - inak
-        # by agent dietatu oznamil, ze cas sa minul. Telegramove limit_set
-        # nulu nadalej povoluje, to je vedomy prikaz rodica.
+        # (HA nema minuty tabletu - napr. nebezi most TimeLimit). Vtedy si
+        # drzime posledny znamy - inak by agent dietatu oznamil, ze cas sa
+        # minul. Telegramove limit_set nulu nadalej povoluje, to je vedomy
+        # prikaz rodica.
         if ($args -match '^[1-9]\d*$') {
           $nl = [int]$args
           if ([int]$st.limitMinutes -ne $nl -or [int]$st.bonusMinutes -ne 0) {

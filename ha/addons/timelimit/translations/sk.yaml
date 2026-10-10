@@ -1,0 +1,55 @@
+configuration:
+  db_host:
+    name: MariaDB – hostiteľ
+    description: Pre add-on MariaDB nechaj core-mariadb.
+  db_port:
+    name: MariaDB – port
+  db_name:
+    name: Databáza
+    description: Musí byť v add-one MariaDB v zozname databases.
+  db_user:
+    name: Používateľ databázy
+    description: Musí byť v add-one MariaDB v logins a rights.
+  db_password:
+    name: Heslo do databázy
+    description: To isté, čo je v add-one MariaDB pri tomto používateľovi.
+  mail_sender:
+    name: Odosielateľ mailov
+    description: Adresa, z ktorej chodia prihlasovacie kódy (nikam von nejdú, končia v Mailpite).
+  always_pro:
+    name: Prémiové funkcie odomknuté
+    description: Na vlastnom serveri nemá zmysel nič platiť.
+  disable_signup:
+    name: Zakázať zakladanie nových rodín
+    description: Zapni, keď už rodina existuje – nikto cudzí si na serveri nič nezaloží.
+  mail_whitelist:
+    name: Povolené mailové adresy
+    description: Domény (bez @) alebo celé adresy, ktorým server pošle prihlasovací kód. Prázdne = komukoľvek.
+  mailpit_max_messages:
+    name: Mailpit – koľko správ držať
+  parent_mail:
+    name: Mail rodiča pre most do HA
+    description: Adresa rodiča v rodine TimeLimit. HA sa ňou prihlási ako ďalšie rodičovské zariadenie (kód si prečíta z Mailpitu sám). Musí byť vo whiteliste.
+  bridge_device_name:
+    name: Názov HA ako zariadenia v rodine
+  always_allowed_category:
+    name: Kategória „vždy povolené"
+    description: Názov kategórie v appke bez časových pravidiel. Presun balíka do nej = aplikácia je povolená stále.
+  sync_interval:
+    name: Interval synchronizácie mosta (s)
+    description: Ako často most ťahá zmeny zo servera do HA. 15 s = HA vidí čas tabletu najneskôr pár sekúnd po tom, čo ho tablet odošle.
+  tablet_sync_active:
+    name: Synchronizácia tabletu pri používaní (s)
+    description: Kým má tablet zapnutú obrazovku (podľa HA, inak kým je pripojený), server ho takto často požiada o synchronizáciu – appka sama posiela spotrebu až po 10 minútach. Pri zhasnutí obrazovky dá jednu záverečnú a potom ho nebudí.
+  mqtt_host:
+    name: MQTT – hostiteľ
+    description: Prázdne = vypýtať od Supervisora (Mosquitto add-on).
+  mqtt_port:
+    name: MQTT – port
+  mqtt_user:
+    name: MQTT – používateľ
+  mqtt_password:
+    name: MQTT – heslo
+network:
+  8080/tcp: TimeLimit API – sem sa pripája appka (vlastný server)
+  8025/tcp: Mailpit – web s prihlasovacími kódmi

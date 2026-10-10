@@ -1,0 +1,50 @@
+# ============================================================================
+# Simona: stav obrazovky tabletu -> synchronizacia TimeLimit
+#
+# Appka TimeLimit posiela spotrebu sama len raz za 10 minut. Server (doplnok
+# ha/addons/timelimit/patches/ha-sync.js) ju preto ziada o synchronizaciu:
+# pri zapnutej obrazovke kazdych 30 s, pri zhasnuti hned raz (a jednu poistnu
+# o 30 s), potom uz nie. Stav obrazovky mu hlasi HA - zdroj je senzor
+# "Interactive" z companion appky HA na tablete (treba ho v nej raz zapnut a
+# appka musi byt prihlasena). Most prikaz {"action":"screen"} prepose na
+# POST 127.0.0.1:8081/screen.
+#
+# Bez senzora (entita neexistuje alebo je nedostupna) server berie pripojenie
+# tabletu ako zapnutu obrazovku - spravne len vtedy, ked v appke TimeLimit NIE
+# JE zapnute "Keep connected when the screen is off" (appka sa pri zhasnuti
+# odpoji sama). Prepinac a senzor teda patria k sebe.
+# ============================================================================
+
+automation:
+  - id: simona_tablet_sync_obrazovka
+    alias: "Simona tablet: obrazovka → synchronizácia TimeLimit"
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.iplay_50_interactive
+        to:
+          - "on"
+          - "off"
+      - trigger: state
+        entity_id: binary_sensor.iplay_50_interactive
+        to:
+          - unavailable
+          - unknown
+        for: "00:01:00"
+      # po restarte HA alebo mosta zopakovat posledny znamy stav
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: binary_sensor.timelimit_iplay_50_pripojeny
+        to: "on"
+    actions:
+      - variables:
+          stav: >-
+            {% set s = states('binary_sensor.iplay_50_interactive') %}
+            {{ s if s in ['on', 'off'] else 'unknown' }}
+      - action: mqtt.publish
+        data:
+          topic: timelimit/cmd
+          payload: >-
+            {{ {'action': 'screen', 'state': stav} | to_json }}

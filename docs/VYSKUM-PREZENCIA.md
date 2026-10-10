@@ -16,6 +16,15 @@ z faktov, **DOMNIENKA** = nepodložené meraním.
 >    lokálne vypnutý. Nesú preto menšiu váhu než čísla z HA, ktoré sú
 >    reprodukovateľné.
 
+> **História (doplnené 4. 10. 2026).** V čase výskumu riadil tablet Google
+> Family Link a z neho prichádzali aj minúty tabletu, od ktorých závisí strop
+> pre PC. Integrácia Family Link prestala fungovať 27. 9. 2026 a 4. 10. 2026
+> bola zo systému odstránená; tablet dnes riadi **TimeLimit** (vlastný server
+> ako lokálny add-on v HA a MQTT most) a minúty tabletu sú
+> `sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes` (vždy povolené
+> aplikácie sa nerátajú). Zmienky o Family Link nižšie opisujú stav v čase
+> výskumu; na nálezoch o agentovi a prezencii výmena zdroja nič nemení.
+
 ---
 
 ## 1. Odpoveď
@@ -138,7 +147,8 @@ odporu — nemal spodnú zábranu.
 
 Simulácia stavu o 16:40 lokálne (`bez_limitu` on, `snap_pc` 153, `offset_pc` 3):
 vypnutie režimu bez limitu by dalo `pc_zapocitane` 0 a **stratilo by 150 minút**,
-ktoré by sa cez sync premietli aj do stropu vo Family Link.
+ktoré by sa cez sync premietli aj do stropu tabletu (v čase výskumu limit vo
+Family Link, dnes denný cieľ pre TimeLimit).
 
 *(Korekcia: pôvodné tvrdenie, že súbor bol 0 B, je v rozpore s vlastnou
 chybovou hláškou. „Invalid JSON primitive: ." znamená, že v súbore niečo bolo
@@ -211,12 +221,13 @@ Akcia `tick` `RunScript` nevolá — je len v `shutdown`, `restart` a `volume`.
 
 ### 2.7 Nedostupný strop znamenal, že agent povie dieťaťu „čas sa minul"
 
-**FAKT** `sensor.simona_pc_povolene` má availability naviazanú na dáta
-z Family Link a `'unavailable' | int(0)` je **0**. Agent nulu prijal ako
+**FAKT** `sensor.simona_pc_povolene` má availability naviazanú na minúty
+tabletu — v čase výskumu dáta z Family Link, dnes z TimeLimit cez most — a
+`'unavailable' | int(0)` je **0**. Agent nulu prijal ako
 platný strop, uložil ju na disk a `Invoke-Warnings` má pre nulu vetvu, ktorá
 sa vysloví vždy.
-**FAKT** zdrojový senzor bol za týždeň **11×** v stave `unknown`, vždy asi
-31 s, a 8 z 11 okien prekrylo hranicu minúty.
+**FAKT** zdrojový senzor (vtedy z Family Link) bol za týždeň **11×** v stave
+`unknown`, vždy asi 31 s, a 8 z 11 okien prekrylo hranicu minúty.
 **FAKT** prienik s časom, keď je PC online, bol zatiaľ prázdny — v produkcii
 sa to teda ešte nestalo. Jediné zalogované „zostáva 0 min" (4. 9. o 11:34 UTC)
 má inú, doloženú príčinu: strop skokom klesol na 7 a spotreba už bola 7.
@@ -445,8 +456,9 @@ odišlo; inak zostáva na −1 a ide správa „vypnúť sa nepodarilo, skúsim 
 
 **Čo tá istá zmena zámerne nerobí.** Podmienka
 `has_value('sensor.simona_pc_povolene')` v tiku **nie je** — zastavila by celý
-beh, teda aj zápis kontaktu a vstupu, vždy keď na 31 s vypadnú dáta z Family
-Link. Nedostupný strop rieši `allowed: -1` na oboch stranách.
+beh, teda aj zápis kontaktu a vstupu, vždy keď na chvíľu vypadnú minúty
+tabletu (v čase výskumu na 31 s dáta z Family Link, dnes ich dodáva most
+TimeLimit). Nedostupný strop rieši `allowed: -1` na oboch stranách.
 
 ### 4.2 Agent 1.1.0
 
@@ -467,7 +479,8 @@ Nové polia v odpovedi na tick: `idle_sec`, `age_sec`, `needs_seed`, `lag_max`,
 **Čo sa zámerne nemení:** vzorec účtovania `max(0, elapsed − idleSec)` a prah
 60 s. Tvoja požiadavka „keď nehýbe myšou a nepíše, čas sa neráta" platí ďalej,
 doslova. Prezencia je oddelený signál. Nemení sa ani model bez blokovania,
-ani cesta na TV a do Family Linku, ani bezpečnostný model agenta.
+ani cesta na TV a k limitu tabletu (vtedy Family Link, dnes TimeLimit), ani
+bezpečnostný model agenta.
 
 ### 4.3 Odhad dopadu na PC
 
@@ -612,5 +625,9 @@ cyklu pádov) — ale **ten kanál na PC ešte nie je zapnutý**, viď otázka 5
 
 **Bokom, ako samostatné úlohy:** token agenta je v `pc_control.yaml`
 v otvorenom texte, nie cez `!secret`. A staré automatizácie `/pridat_30`,
-`/pridat_60` a víkendový režim stále zapisujú priamo do Family Linku, kde ich
-sync prepíše — buď ich zrušiť, alebo prepnúť na `/cas_add`.
+`/pridat_60` a víkendový režim v čase výskumu zapisovali priamo do Family
+Linku, kde ich sync prepísal — buď ich zrušiť, alebo prepnúť na `/cas_add`.
+*(Stav k 4. 10. 2026: Family Link je preč. Tlačidlá +30/+60 v menu „Simonka
+Tablet" pridávajú do spoločného rozpočtu — pri vypnutom zdieľaní priamo ako
+extra čas v TimeLimit — a prázdninová/víkendová ponuka nastaví spoločný
+rozpočet na 150 min.)*

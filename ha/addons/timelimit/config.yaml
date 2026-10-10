@@ -1,0 +1,68 @@
+# Home Assistant local add-on: TimeLimit.io server + Mailpit
+# Nahrada za LXC 123 na pve - server bezi priamo v HA ako add-on.
+name: "TimeLimit Server"
+version: "1.17.0-15"
+slug: "timelimit"
+description: "Self-hostovaný TimeLimit.io server (rodičovský dohľad) + Mailpit na kódy + most do HA cez MQTT. DB v add-one MariaDB."
+url: "https://gitlab.com/timelimit.io/timelimit-server-2018"
+arch:
+  - amd64
+init: false
+startup: services
+boot: auto
+hassio_api: true
+services:
+  - mqtt:need
+watchdog: "http://[HOST]:[PORT:8080]/time"
+ports:
+  8080/tcp: 8080
+  8025/tcp: 8025
+ports_description:
+  8080/tcp: "TimeLimit API – sem sa pripája appka (vlastný server)"
+  8025/tcp: "Mailpit – web s prihlasovacími kódmi, ktoré server posiela rodičovi"
+options:
+  db_host: "core-mariadb"
+  db_port: 3306
+  db_name: "timelimit"
+  db_user: "timelimit"
+  db_password: ""
+  mail_sender: "timelimit@fabrici.xyz"
+  always_pro: true
+  disable_signup: false
+  mail_whitelist:
+    - "fabrici.xyz"
+  mailpit_max_messages: 1000
+  # most do HA: mail rodiča, cez ktorý sa HA prihlási do rodiny (musí byť vo whiteliste)
+  parent_mail: ""
+  bridge_device_name: "Home Assistant"
+  # kategória v appke, ktorá znamená „vždy povolené" (bez pravidiel)
+  always_allowed_category: "Allowed Apps"
+  sync_interval: 15
+  # doplnok servera: ako často žiadať tablet o synchronizáciu, kým sa na ňom ráta čas (s)
+  tablet_sync_active: 30
+  # voliteľné explicitné MQTT; prázdne = vypýtať od Supervisora (Mosquitto add-on)
+  mqtt_host: ""
+  mqtt_port: 1883
+  mqtt_user: ""
+  mqtt_password: ""
+schema:
+  db_host: str
+  db_port: port
+  db_name: str
+  db_user: str
+  db_password: password
+  mail_sender: str
+  always_pro: bool
+  disable_signup: bool
+  mail_whitelist:
+    - str
+  mailpit_max_messages: int(10,100000)
+  parent_mail: str?
+  bridge_device_name: str
+  always_allowed_category: str
+  sync_interval: int(15,900)
+  tablet_sync_active: int(10,600)?
+  mqtt_host: str?
+  mqtt_port: port
+  mqtt_user: str?
+  mqtt_password: password?

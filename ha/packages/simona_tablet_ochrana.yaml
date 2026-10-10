@@ -1,0 +1,69 @@
+# ============================================================================
+# Simona: dozor nad TimeLimit na tablete
+#
+# Ked dohlad Googlu skonci, je TimeLimit jedina zabrana na tablete. Svoje upozornenia
+# (manipulacia, odinstalovanie, odobrate opravnenia) appka posiela rodicovi s
+# appkou TimeLimit alebo mailom - mail tu konci v Mailpite, ktory nikto
+# necita. Most ich preto dava do HA (binary_sensor.timelimit_iplay_50_manipulacia,
+# v atribute problems zoznam dovodov) a odtial idu obom rodicom do Telegramu.
+# Rovnako ked na tablete v TimeLimit nie je prihlasena Simonka - vtedy appka
+# nevynucuje nic.
+# ============================================================================
+
+automation:
+  - id: simona_tablet_manipulacia
+    alias: "Simona tablet: manipulácia s TimeLimit → Telegram"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.timelimit_iplay_50_manipulacia
+        from: "off"
+        to: "on"
+      # novy dovod pri uz hlasenej manipulacii
+      - trigger: state
+        entity_id: binary_sensor.timelimit_iplay_50_manipulacia
+        attribute: problems
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.timelimit_iplay_50_manipulacia
+        state: "on"
+    actions:
+      - variables:
+          dovody: "{{ state_attr('binary_sensor.timelimit_iplay_50_manipulacia', 'problems') | default([], true) | join(', ') }}"
+      - repeat:
+          for_each: ["5756450012", "8413756301"]
+          sequence:
+            - action: telegram_bot.send_message
+              continue_on_error: true
+              data:
+                chat_id: "{{ repeat.item }}"
+                parse_mode: html
+                message: >-
+                  🛡 <b>TimeLimit na Simonkinom tablete hlási problém:</b>
+                  {{ dovody }}.{{ '\n' }}Kým sa to nevyrieši, limity tabletu
+                  nemusia platiť. Ochrana: {{ state_attr('binary_sensor.timelimit_iplay_50_manipulacia', 'protection') }}.
+
+  - id: simona_tablet_iny_pouzivatel
+    alias: "Simona tablet: v TimeLimit nie je prihlásená Simonka → Telegram"
+    mode: single
+    triggers:
+      - trigger: state
+        entity_id: sensor.timelimit_zariadenie_iplay_50
+        for: "00:02:00"
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.to_state.state not in ['Simonka', 'unknown', 'unavailable'] }}
+    actions:
+      - repeat:
+          for_each: ["5756450012", "8413756301"]
+          sequence:
+            - action: telegram_bot.send_message
+              continue_on_error: true
+              data:
+                chat_id: "{{ repeat.item }}"
+                parse_mode: html
+                message: >-
+                  ⚠️ Na Simonkinom tablete je v TimeLimit prihlásený
+                  <b>{{ trigger.to_state.state }}</b> – limity tabletu sa teraz
+                  nevynucujú.

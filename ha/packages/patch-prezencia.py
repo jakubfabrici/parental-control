@@ -72,12 +72,11 @@ def swap(name, old, new):
 
 
 # --- H9: nove input_number helpery -----------------------------------------
+# (Kotva bez nasledujuceho "input_text:" - ten blok odstranila zaplata zo 4. 10. 2026.)
 swap(
     "helpery-input-number",
     """    unit_of_measurement: min
-    icon: mdi:power-off
-
-input_text:""",
+    icon: mdi:power-off""",
     """    unit_of_measurement: min
     icon: mdi:power-off
 
@@ -106,9 +105,7 @@ input_text:""",
     step: 1
     mode: box
     unit_of_measurement: s
-    icon: mdi:timer-alert-outline
-
-input_text:""",
+    icon: mdi:timer-alert-outline""",
 )
 
 # --- H9: nove input_datetime helpery (do EXISTUJUCEHO bloku) ---------------

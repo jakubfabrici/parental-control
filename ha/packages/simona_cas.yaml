@@ -1,14 +1,14 @@
 # ============================================================================
-# Simona: ZDIELANY CASOVY ROZPOCET  (tablet iPlay_50 + PC 192.168.1.104)
+# Simona: ZDIELANY CASOVY ROZPOCET  (tablet iPlay 50 + PC 192.168.1.104)
 #
 # Myslienka: jeden vecer casu na den pre obe zariadenia dokopy.
-#   R      = celkovy rozpocet na dnes (min), preberany z rozvrhu Family Link
-#   tablet = skutocne minuty na tablete (Family Link ich uz rata sam)
+#   R      = celkovy rozpocet na dnes (min), o polnoci z tyzdenneho rozvrhu
+#   tablet = skutocne minuty na tablete (TimeLimit, kategoria s limitom)
 #   pc     = skutocne minuty na PC (hlasi agent na porte 8799)
 #
 # HA obom stranam priebezne posuva ich strop:
-#   FL denny limit tabletu  :=  R - pc              -> Family Link zamkne tablet
-#   povolene na PC          :=  R + bonus - tablet  -> agent uz len varuje
+#   ciel tabletu na dnes  :=  R - pc      -> most TimeLimit, appka zamkne tablet
+#   povolene na PC        :=  R - tablet  -> agent uz len varuje
 # Kazda strana tak vidi presne to, co jej po tej druhej zostalo. Prepocet
 # bezi kazdu minutu, takze pri sucasnom hrani na oboch zariadeniach je
 # odchylka nanajvys jedna-dve minuty a sama sa zrovna.
@@ -18,20 +18,17 @@
 # ked pri nom odsedi viac ako 3 minuty, ide len upozornenie na TV a
 # Jakubovi do Telegramu.
 #
-# Rozvrh je v HA (input_number.simona_rozvrh_po ... _ne) ako kopia rozvrhu
-# z Family Link - ten sa cez integraciu vycitat NEDA, coordinator sprístupnuje
-# len appliedTimeLimits (hodnotu platnu na dnes, vratane nasho override).
-# Citat rozpocet odtial bola chyba: kazde rano sme precitali vlastny vcerajsi
-# zvysok a rozpocet sa scvrkaval. Ked sa vsak limit vo FL zmeni tak, ze to
-# nesposobil nas zapis, je to skutocna zmena od rodica - tu prevezmeme
-# (simona_cas_fl_zmena) a prepiseme nou aj kopiu rozvrhu.
-# Zapis limitu ide cez endpoint
-# timeLimitOverrides:batchCreate, teda je to override na DNESNY den -
-# tyzdenny rozvrh v Google sa nemeni. O 23:57 ho vraciame na hodnotu rozvrhu,
-# aby po nas nezostal ziadny override.
+# Rozvrh je v HA (input_number.simona_rozvrh_po ... _ne) a je to jediny
+# zdroj pravdy: o polnoci sa z neho naplni rozpocet na dnes. Vlastne pravidla
+# kategorie "Ostatné aplikácie" v appke TimeLimit (60 min po-pia, 180 min
+# so-ne) su len zachranna siet pre pripad, ze HA alebo most nebezi.
 #
-# Fail-safe: ked Family Link data chybaju (unavailable), NEMENIME nic -
-# radsej ziadny zasah nez omylom nastaveny limit 0.
+# Strop tabletu: HA posiela mostu TimeLimit "cielovy cas na dnes" (mqtt
+# timelimit/cmd, set_total) a most ho premieta do vlastneho pravidla HA
+# a extra casu - viď ha/addons/timelimit/README.md.
+#
+# Fail-safe: ked minuty tabletu chybaju (most alebo server TimeLimit nebezi),
+# strop tabletu NEMENIME - radsej ziadny zasah nez omylom nastaveny limit 0.
 # ============================================================================
 
 input_boolean:
@@ -50,11 +47,9 @@ input_boolean:
     icon: mdi:infinity
 
 input_number:
-  # Tyzdenny rozvrh: kolko minut ma dieta na jednotlivy den. Je to KOPIA
-  # rozvrhu z Family Link - ten sa cez integraciu vycitat neda (coordinator
-  # cita len appliedTimeLimits, teda hodnotu platnu na dnes, do ktorej sme
-  # sami zapisali override). Ked sa rozvrh vo Family Link zmeni, treba ho
-  # prepisat aj tu.
+  # Tyzdenny rozvrh: kolko minut ma dieta na jednotlivy den. Je to jediny
+  # zdroj pravdy o rozvrhu - o polnoci sa z neho naplni rozpocet na dnes.
+  # Meni sa na dashboarde /simonka-cas (Týždenný rozvrh).
   #
   # Hodnoty sa NEsetuju cez 'initial' - to by ich prepisalo pri kazdom
   # restarte HA a rucna zmena by neprezila. Nastavuju sa raz sluzbou
@@ -219,15 +214,6 @@ input_number:
     unit_of_measurement: s
     icon: mdi:timer-alert-outline
 
-input_text:
-  # Poslednych 5 hodnot, ktore sme zapisali do Family Link, oddelenych
-  # ciarkou. Sluzi na rozoznanie vlastnej ozveny od skutocnej zmeny v
-  # aplikacii - viac pri automatizacii simona_cas_fl_zmena.
-  simona_fl_zapisane:
-    name: Simona posledné zápisy do Family Link
-    max: 40
-    icon: mdi:pencil-outline
-
 # Kolko po sebe iducich tikov hlasilo spotrebu, ktora sa nedala stihnut.
 # Prvy hodnoverny tik ho vynuluje; po treťom ide sprava do Telegramu.
 counter:
@@ -281,17 +267,28 @@ input_datetime:
 # ---------------------------------------------------------------------------
 template:
   - sensor:
-      # Skutocne minuty na tablete dnes. Family Link ich rata sam, my ich len
-      # citame - su nezavisle od toho, ako prave posuvame denny limit.
+      # Surove minuty tabletu dnes z TimeLimit (pred odpocitanim
+      # nezapocitanych). Len kategoria s limitom - Allowed Apps su povolene
+      # stale a do spolocneho casu sa nerataju. Appka ich rata sama, takze su
+      # nezavisle od toho, ako prave posuvame strop tabletu.
+      - name: Simona tablet namerané
+        unique_id: simona_tablet_namerane
+        unit_of_measurement: min
+        device_class: duration
+        state_class: measurement
+        icon: mdi:tablet
+        availability: "{{ has_value('sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes') }}"
+        state: "{{ states('sensor.timelimit_simonka_ostatne_aplikacie_pouzite_dnes') | int(0) }}"
+
       - name: Simona tablet použité
         unique_id: simona_tablet_pouzite
         unit_of_measurement: min
         device_class: duration
         state_class: measurement
         icon: mdi:tablet
-        availability: "{{ has_value('sensor.iplay_50_screen_time_remaining') }}"
+        availability: "{{ has_value('sensor.simona_tablet_namerane') }}"
         state: >-
-          {% set raw = state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) %}
+          {% set raw = states('sensor.simona_tablet_namerane') | int(0) %}
           {% set off = states('input_number.simona_offset_tablet') | int(0) %}
           {% set snap = states('input_number.simona_snap_tablet') | int(-1) %}
           {% if is_state('input_boolean.simona_bez_limitu', 'on') and snap >= 0 %}
@@ -300,7 +297,7 @@ template:
           {{ [ raw - off, 0 ] | max }}
           {% endif %}
         attributes:
-          namerane: "{{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}"
+          namerane: "{{ states('sensor.simona_tablet_namerane') | int(0) }}"
           nezapocitane: "{{ states('input_number.simona_offset_tablet') | int(0) }}"
 
       # Kolko minut ma rozvrh na dnesny (a zajtrajsi) den. now().weekday()
@@ -320,16 +317,16 @@ template:
             {% set dni = ['po','ut','st','stv','pi','so','ne'] %}
             {{ states('input_number.simona_rozvrh_' ~ dni[(now().weekday() + 1) % 7]) | int(0) }}
 
-      # Celkovy dostupny cas na dnes. Bonus pridany priamo v aplikacii Family
-      # Link sa pripocitava - rodic tym vedome zvacsil vecer.
+      # Celkovy dostupny cas na dnes. Pridany cas (Telegram, dashboard) sa
+      # pripisuje priamo do rozpoctu na dnes, takze je to rovno R. Extra cas
+      # v TimeLimit sa NEpripocitava - ten si most nastavuje sam ako sucast
+      # ciela tabletu a zapocital by sa dvakrat.
       - name: Simona rozpočet celkom
         unique_id: simona_rozpocet_celkom
         unit_of_measurement: min
         device_class: duration
         icon: mdi:wallet-plus-outline
-        state: >-
-          {{ (states('input_number.simona_rozpocet_dnes') | int(0))
-             + (states('sensor.iplay_50_active_bonus') | int(0)) }}
+        state: "{{ states('input_number.simona_rozpocet_dnes') | int(0) }}"
 
       # To iste pre PC: agent hlasi namerane minuty, my z nich odpocitame
       # tie, ktore padli do rezimu "bez limitu".
@@ -377,8 +374,9 @@ template:
           {{ [ (states('sensor.simona_rozpocet_celkom') | int(0))
                - (states('sensor.simona_cas_pouzity') | int(0)), 0 ] | max }}
 
-      # Strop, ktory ma mat tablet vo Family Link. Bonus sem NEpatri - Family
-      # Link si ho pripocitava k limitu sam, inak by sa zapocital dvakrat.
+      # Ciel tabletu na dnes, ktory HA posiela mostu TimeLimit (set_total):
+      # rozpocet minus PC, plus minuty nezapocitane v rezime bez limitu (appka
+      # ich vidi ako pouzite, preto ich treba vratit).
       - name: Simona tablet cieľový limit
         unique_id: simona_tablet_cielovy_limit
         unit_of_measurement: min
@@ -435,29 +433,22 @@ rest_command:
 automation:
   # -- Polnocny start dna -----------------------------------------------------
   # Rozpocet na dnes berieme z TYZDENNEHO ROZVRHU v HA (input_number.simona_
-  # rozvrh_*), nie z Family Link.
+  # rozvrh_*). Je to lokalna hodnota, takze vzdy existuje.
   #
-  # Predtym sa cital sensor.iplay_50_daily_limit - a to bola chyba: integracia
-  # do neho dava hodnotu platnu na dnes, teda vratane override, ktory sme tam
-  # cez den sami zapisali. Rano sme si tak precitali vlastny vcerajsi zvysok
-  # a rozpocet sa den po dni scvrkaval (180 -> 75 -> 61). Tyzdenny rozvrh sa
-  # z Family Link vycitat neda, preto je jeho kopia tu.
+  # Preco 00:06 a nie 00:00: agent na PC nuluje o 00:00 a most TimeLimit
+  # ohlasi minuty noveho dna pri prvej synchronizacii po polnoci (raz za
+  # minutu). O 00:06 su obe strany davno na novom dni, takze novy rozpocet
+  # sa nikdy nestretne so vcerajsimi minutami (falosne "cas sa minul" a
+  # vypnutie PC o polnoci). Do 00:06 HA tabletu ciel neposiela (viz
+  # simona_cas_sync_tabletu_timelimit) a tablet ide podla zachrannej siete
+  # appky.
   - id: simona_cas_polnocny_reset
     alias: "Simona čas: polnočný reset rozpočtu"
     mode: single
     triggers:
       - trigger: time
-        at: "00:05:00"
+        at: "00:06:00"
     actions:
-      - action: homeassistant.update_entity
-        target:
-          entity_id:
-            - sensor.iplay_50_daily_limit
-            - sensor.iplay_50_screen_time_remaining
-      # Minuta, nie 20 sekund: koordinator ma interval 30 s a my potrebujeme,
-      # aby stihol priniest hodnotu na NOVY den. Ak sa lisi od rozvrhu,
-      # medzitym ju prevezme automatizacia simona_cas_fl_zmena.
-      - delay: "00:01:00"
       - action: input_number.set_value
         target:
           entity_id:
@@ -474,112 +465,12 @@ automation:
             - input_number.simona_pc_snap_vypnutie
         data:
           value: -1
-      # Rozpocet na novy den podla rozvrhu. Je to lokalna hodnota, takze
-      # vzdy existuje - nic tu nemoze zlyhat na nedostupnom Google API.
+      # Rozpocet na novy den podla rozvrhu.
       - action: input_number.set_value
         target:
           entity_id: input_number.simona_rozpocet_dnes
         data:
           value: "{{ states('sensor.simona_rozvrh_dnes') | int(0) }}"
-
-  # -- Evidencia toho, co sme do Family Link zapisali --------------------------
-  # Pocuvame priamo volanie sluzby, nie jednotlive automatizacie: do FL pisu
-  # aj STARSIE automatizacie z povodneho setupu (tlacidla /pridat_30,
-  # /pridat_60, vikendovy rezim v automations.yaml). Keby sme evidovali len
-  # vlastne zapisy, ich zmeny by simona_cas_fl_zmena povazovala za zmenu od
-  # rodica a prepisala by nimi tyzdenny rozvrh.
-  - id: simona_cas_fl_evidencia
-    alias: "Simona čas: evidencia zápisov do Family Link"
-    mode: queued
-    max: 10
-    triggers:
-      - trigger: event
-        event_type: call_service
-        event_data:
-          domain: familylink
-          service: set_daily_limit
-    actions:
-      - action: input_text.set_value
-        target:
-          entity_id: input_text.simona_fl_zapisane
-        data:
-          value: >-
-            {% set nova = trigger.event.data.service_data.daily_minutes | int(0) %}
-            {{ ([ nova | string ] + (states('input_text.simona_fl_zapisane')
-                 .split(',') | map('int', 0) | select | map('string') | list))[:5] | join(',') }}
-
-  # -- Prevzatie zmeny z Family Link ------------------------------------------
-  # Ked rodic zmeni denny limit priamo v aplikacii, chceme to vediet a
-  # prevziat - Family Link je zdroj pravdy o rozvrhu.
-  #
-  # Lenze do toho isteho senzora pisme aj my: familylink.set_daily_limit si
-  # po zapise vyziada refresh koordinatora, takze kazdy nas zapis sa nam o
-  # par sekund vrati ako "zmena". Slepe preberanie by znamenalo, ze si
-  # kazdu minutu precitame vlastny odpocet a rozpocet by sa scvrkaval -
-  # to iste, co robil povodny polnocny reset, len 30x rychlejsie.
-  #
-  # Preto si poslednych 5 zapisanych hodnot pametame a preberame len zmenu,
-  # ktora sa ani jednej z nich nerovna.
-  - id: simona_cas_fl_zmena
-    alias: "Simona čas: prevziať zmenu z Family Link"
-    mode: single
-    max_exceeded: silent
-    triggers:
-      - trigger: state
-        entity_id: sensor.iplay_50_daily_limit
-    conditions:
-      # Prechody cez unknown/unavailable (restart HA, vypadok Google) nie su
-      # zmena rozvrhu.
-      - condition: template
-        value_template: >-
-          {{ trigger.from_state is not none and trigger.to_state is not none
-             and trigger.from_state.state not in ['unknown', 'unavailable']
-             and trigger.to_state.state not in ['unknown', 'unavailable'] }}
-      # Nula chodi aj z nocneho/skolskeho rezimu, nie je to rozvrh.
-      - condition: template
-        value_template: "{{ 0 < (trigger.to_state.state | int(0)) <= 1440 }}"
-      # Kym je tablet rucne zamknuty, FL zmeny limitu neprijima a hlasi
-      # neaktualne cisla.
-      - condition: state
-        entity_id: switch.iplay_50
-        state: "on"
-      # Jadro veci: nesmieme prevziat vlastnu ozvenu.
-      - condition: template
-        value_template: >-
-          {{ (trigger.to_state.state | int(0)) | string
-             not in states('input_text.simona_fl_zapisane').split(',') }}
-      - condition: template
-        value_template: >-
-          {{ (trigger.to_state.state | int(0))
-             != (states('sensor.simona_tablet_cielovy_limit') | int(-1)) }}
-    actions:
-      - variables:
-          nova: "{{ trigger.to_state.state | int(0) }}"
-          den: "{{ ['po','ut','st','stv','pi','so','ne'][now().weekday()] }}"
-          den_nazov: >-
-            {{ ['pondelok','utorok','stredu','štvrtok','piatok','sobotu','nedeľu'][now().weekday()] }}
-          stary: "{{ states('sensor.simona_rozvrh_dnes') | int(0) }}"
-      # Rozvrh na dnesny den aj rozpocet na dnes.
-      - action: input_number.set_value
-        target:
-          entity_id: "input_number.simona_rozvrh_{{ den }}"
-        data:
-          value: "{{ nova }}"
-      - action: input_number.set_value
-        target:
-          entity_id: input_number.simona_rozpocet_dnes
-        data:
-          value: "{{ nova }}"
-      - action: telegram_bot.send_message
-        continue_on_error: true
-        data:
-          chat_id: 5756450012
-          parse_mode: html
-          message: >-
-            📅 Family Link hlási denný limit <b>{{ nova }} min</b>{% if stary != nova %}
-            (predtým {{ stary }}){% endif %}. Prevzal som to ako rozpočet na dnes
-            aj ako rozvrh na {{ den_nazov }}.{% if stary != nova %}
-            {{ '\n' }}<i>Ak to malo platiť len dnes, oprav rozvrh na dashboarde.</i>{% endif %}
 
   # -- Rezim "bez limitu" ----------------------------------------------------
   # Pri zapnuti si odlozime, kde obe strany prave su. Merat nikomu
@@ -598,7 +489,7 @@ automation:
           entity_id: input_number.simona_snap_tablet
         data:
           value: >-
-            {{ state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) }}
+            {{ states('sensor.simona_tablet_namerane') | int(0) }}
       - action: input_number.set_value
         target:
           entity_id: input_number.simona_snap_pc
@@ -628,7 +519,7 @@ automation:
           entity_id: input_number.simona_offset_tablet
         data:
           value: >-
-            {% set raw = state_attr('sensor.iplay_50_screen_time_remaining', 'used_minutes') | int(0) %}
+            {% set raw = states('sensor.simona_tablet_namerane') | int(0) %}
             {% set snap = states('input_number.simona_snap_tablet') | int(0) %}
             {{ [ (states('input_number.simona_offset_tablet') | int(0)) + [ raw - snap, 0 ] | max, 1440 ] | min }}
       - action: input_number.set_value
@@ -648,45 +539,48 @@ automation:
         data:
           value: -1
 
-  # -- Prepocet stropu pre tablet --------------------------------------------
-  # Bezi po kazdej zmene spotreby. Google API volame len ked sa cielova
-  # hodnota naozaj lisi od aktualnej, aby sme ho nebombardovali.
-  - id: simona_cas_sync_tabletu
-    alias: "Simona čas: zosúladiť limit tabletu"
+  # -- Strop tabletu cez TimeLimit --------------------------------------------
+  # HA posle mostu "cielovy cas na dnes" = sensor.simona_tablet_cielovy_limit.
+  # Most ho drzi (aj cez restart) a pri kazdej synchronizacii premieta do
+  # vlastneho pravidla HA (strop appky zvysit nevie) a extra casu (to, co je
+  # nad strop appky). Posielame pri zmene a raz za 5 minut pre istotu. Ked je
+  # zdielany cas vypnuty, ciel zrusime (clear_total) a plati len rozvrh appky.
+  # Ciel plati len na den, v ktory prisiel - vcerajsi ciel aj pravidlo HA
+  # most po polnoci zahodi sam.
+  #
+  # Od 00:00 do 00:05 sa neposiela nic: PC je v noci vacsinou vypnute a do
+  # resetu o 00:06 drzi vcerajsie minuty, ciel na novy den by tak mohol byt
+  # prisnejsi (krajne 0). Tablet ide medzitym podla zachrannej siete appky;
+  # prvy ciel noveho dna ide hned po resete (zmena ciela), poistne o 00:06:30.
+  - id: simona_cas_sync_tabletu_timelimit
+    alias: "Simona čas: strop tabletu cez TimeLimit"
     mode: single
     max_exceeded: silent
     triggers:
       - trigger: state
         entity_id:
           - sensor.simona_tablet_cielovy_limit
-          - input_number.simona_pc_pouzite
-          - input_number.simona_rozpocet_dnes
+          - input_boolean.simona_zdielany_cas
       - trigger: time_pattern
         minutes: "/5"
+      - trigger: time
+        at: "00:06:30"
     conditions:
-      - condition: state
-        entity_id: input_boolean.simona_zdielany_cas
-        state: "on"
+      - condition: template
+        value_template: "{{ not (now().hour == 0 and now().minute < 6) }}"
       - condition: template
         value_template: "{{ has_value('sensor.simona_tablet_cielovy_limit') }}"
-      - condition: template
-        value_template: "{{ has_value('sensor.iplay_50_daily_limit') }}"
-      - condition: template
-        value_template: >-
-          {{ (states('sensor.simona_tablet_cielovy_limit') | int(-1))
-             != (states('sensor.iplay_50_daily_limit') | int(-2)) }}
-      # Tesne po polnoci sa vo Family Link objavi rozvrh na novy den. Keby
-      # sme don v tej chvili zapisali, prepiseme si ho skor, nez si ho
-      # stihneme precitat - a rozvrh z aplikacie by sa k nam nikdy nedostal.
-      - condition: template
-        value_template: "{{ not (now().hour == 0 and now().minute < 10) }}"
     actions:
-      - variables:
-          ciel: "{{ states('sensor.simona_tablet_cielovy_limit') | int }}"
-      - action: familylink.set_daily_limit
+      - action: mqtt.publish
         data:
-          entity_id: switch.iplay_50
-          daily_minutes: "{{ ciel }}"
+          topic: timelimit/cmd
+          payload: >-
+            {% if is_state('input_boolean.simona_zdielany_cas', 'on') %}
+            {{ {'action': 'set_total', 'child': 'Simonka', 'category': 'Ostatné aplikácie',
+                'minutes': states('sensor.simona_tablet_cielovy_limit') | int(0)} | to_json }}
+            {% else %}
+            {{ {'action': 'clear_total', 'child': 'Simonka', 'category': 'Ostatné aplikácie'} | to_json }}
+            {% endif %}
 
   # -- Minutove spojenie s PC -------------------------------------------------
   # HA sa pyta agenta, agent odpovie kolko dnes odsedel a dostane svoj strop.
@@ -771,12 +665,29 @@ automation:
           - POST
         local_only: true
     conditions:
-      - condition: state
-        entity_id: input_boolean.simona_zdielany_cas
-        state: "on"
       - condition: template
         value_template: "{{ trigger.json is defined and trigger.json.used is defined }}"
     actions:
+      # Start Windows (agent 1.2.2+ posiela uptime_sec, inak 1970) - PRED
+      # ozvanim, na ktore reaguje uplny zamok.
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_pc_start
+        data:
+          timestamp: >-
+            {% set up = trigger.json.uptime_sec | default(-1) | int(-1) %}
+            {{ (as_timestamp(now()) - up) | int if up >= 0 else 0 }}
+      # Kazde hlasenie, aj pri pozastavenom zdielani - podla neho uplny zamok
+      # (simona_zamok.yaml) vidi zapnute PC. Kontakt sa pri pauze nezapisuje
+      # (skreslil by odstup nizsie).
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_zamok_pc_ozvanie
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
       - variables:
           novy: >-
             {{ trigger.json.idle_sec is defined and trigger.json.age_sec is defined }}
@@ -890,30 +801,6 @@ automation:
             {{ [ [ states('input_number.simona_pc_lag_max') | int(0),
                    trigger.json.lag_max | default(0) | int(0) ] | max, 3600 ] | min }}
 
-  # -- Vecerne upratanie ------------------------------------------------------
-  # Override vratime na hodnotu z ROZVRHU (nie na rozpocet - ten mohol byt
-  # cez den rucne zvyseny a to bola vynimka len na dnes), nech po nas v
-  # Google nezostane nic, co by ovplyvnilo dalsie dni.
-  - id: simona_cas_vecerne_upratanie
-    alias: "Simona čas: vrátiť limit podľa rozvrhu"
-    mode: single
-    triggers:
-      - trigger: time
-        at: "23:57:00"
-    conditions:
-      - condition: template
-        value_template: >-
-          {{ has_value('sensor.iplay_50_daily_limit')
-             and (states('sensor.iplay_50_daily_limit') | int(-1))
-                 != (states('sensor.simona_rozvrh_dnes') | int(-2)) }}
-    actions:
-      - variables:
-          ciel: "{{ states('sensor.simona_rozvrh_dnes') | int }}"
-      - action: familylink.set_daily_limit
-        data:
-          entity_id: switch.iplay_50
-          daily_minutes: "{{ ciel }}"
-
   # -- Vypnutie PC po vycerpani casu ------------------------------------------
   # Po limite sa pocitac RAZ vypne. Nie hned a nie potichu: najprv hlasove a
   # textove varovanie a minuta na ulozenie rozrobeneho.
@@ -950,6 +837,18 @@ automation:
       - condition: numeric_state
         entity_id: sensor.simona_cas_zostava
         below: 1
+      # Uplny zamok vypina PC sam (simona_zamok.yaml) - nemiesat sa do toho
+      # a neminat dennu snimku vypnutia.
+      - condition: state
+        entity_id: input_boolean.simona_uplny_zamok
+        state: "off"
+      # navrat zostatku z nedostupnosti (restart add-onu TimeLimit) nie je
+      # "cas sa prave minul"
+      - condition: template
+        value_template: >-
+          {{ trigger.platform != 'numeric_state'
+             or (trigger.from_state is not none
+                 and trigger.from_state.state not in ['unknown', 'unavailable']) }}
       # Ked PC nebezi, nie je co vypinat - vypne sa az ked ho zapne.
       - condition: state
         entity_id: binary_sensor.simona_pc_online
@@ -970,6 +869,10 @@ automation:
           action: msg
           args: Čas na dnes sa minul - počítač sa o minútu vypne.
       - delay: "00:01:00"
+      # zamok zapnuty pocas tej minuty - PC vypina on, snimka ostava -1
+      - condition: state
+        entity_id: input_boolean.simona_uplny_zamok
+        state: "off"
       # Snimka az tesne pred vypnutim, nech sa tie 3 minuty po opatovnom
       # zapnuti rataju od skutocneho konca.
       - action: input_number.set_value
@@ -1039,6 +942,10 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_pc_pouziva_sa
         state: "on"
+      # pocas uplneho zamku PC vypina zamok a rodicom pise sam
+      - condition: state
+        entity_id: input_boolean.simona_uplny_zamok
+        state: "off"
       # Az ked uz raz po limite vypnuty bol ...
       - condition: numeric_state
         entity_id: input_number.simona_pc_snap_vypnutie
@@ -1115,6 +1022,12 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_zdielany_cas
         state: "on"
+      # Ticho po vypnuti uplnym zamkom nie je zamrznuty agent.
+      - condition: template
+        value_template: >-
+          {{ is_state('input_boolean.simona_uplny_zamok', 'off')
+             and (as_timestamp(states('input_datetime.simona_pc_kontakt'), 0)
+                  - as_timestamp(states('input_datetime.simona_zamok_pc_vypnutie'), 0)) | abs > 300 }}
       # Ked sa cas nerata, mlciaci agent nic nestoji.
       - condition: state
         entity_id: input_boolean.simona_bez_limitu
@@ -1179,11 +1092,16 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_bez_limitu
         state: "off"
+      # navrat z nedostupnosti (restart add-onu TimeLimit) nie je prekrocenie
+      - condition: template
+        value_template: >-
+          {{ trigger.from_state is not none
+             and trigger.from_state.state not in ['unknown', 'unavailable'] }}
     actions:
       - variables:
           sprava: >-
             {% set t = states('sensor.simona_tablet_pouzite') | int(0) %}
-            {% set p = states('input_number.simona_pc_pouzite') | int(0) %}
+            {% set p = states('sensor.simona_pc_zapocitane') | int(0) %}
             {% if trigger.id == '0' %}⛔ Simonke sa minul spoločný čas
             {% else %}⏳ Simonke zostáva {{ trigger.id }} min spoločného času
             {% endif %}(tablet {{ t }} + PC {{ p }} z {{ states('sensor.simona_rozpocet_celkom') | int(0) }} min).
