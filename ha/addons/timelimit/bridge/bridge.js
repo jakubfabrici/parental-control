@@ -899,8 +899,12 @@ async function enforceFullLocksNow() {
     if (releasing) await pull();
     const actions = fullLockPlan(Date.now(), releasing);
     if (actions.length === 0) return;
+    // pushActions ulozi stav pred POST, takze znacky prezivu aj stratenu odpoved
     const pushedAt = Date.now();
-    for (const rec of Object.values(state.fullLocks || {})) if (!rec.releasing) rec.pushedAt = pushedAt;
+    for (const rec of Object.values(state.fullLocks || {})) {
+        if (rec.releasing) rec.releasePushedAt = pushedAt;   // obnova mohla zasiahnut server
+        else rec.pushedAt = pushedAt;
+    }
     log('uplny zamok: posielam', actions.length, 'akcii');
     const r = await pushActions(actions);
     await pull();
@@ -917,18 +921,30 @@ async function setFullLockNow(child, on) {
     const rec = state.fullLocks[child.id];
     if (on) {
         if (!rec) {
+            // povodny stav zo servera - lokalna kopia moze byt az sync_interval
+            // stara (zmena v appke rodica tesne pred zamkom); bez pullu zamknut aj tak
+            try {
+                await pull();
+            } catch (e) {
+                if (e.status === 401) throw e;
+                warn('uplny zamok: pull pred zapnutim zlyhal:', e.message);
+            }
             const prev = {};
             for (const cat of catsOf(child.id)) prev[cat.base.categoryId] = catLockState(cat);
             state.fullLocks[child.id] = { since: Date.now(), prev };
             log('uplny zamok ZAPNUTY pre', child.name);
         } else if (rec.releasing) {
             // rusenie este neprebehlo - zamok ostava, povodny stav (prev) tiez;
-            // dorucenie na tablet treba potvrdit znova (cast rusenia ho mohla zastihnut)
+            // ked obnova stihla zasiahnut server, dorucenie na tablet treba
+            // potvrdit znova
             delete rec.releasing;
-            delete rec.appliedAt;
-            delete rec.deliveredAt;
-            delete rec.pushedAt;
-            rec.since = Date.now();
+            if (rec.releasePushedAt) {
+                delete rec.appliedAt;
+                delete rec.deliveredAt;
+                delete rec.pushedAt;
+                rec.since = Date.now();
+            }
+            delete rec.releasePushedAt;
             log('uplny zamok znova ZAPNUTY pre', child.name);
         }
     } else if (rec) {

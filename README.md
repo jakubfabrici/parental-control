@@ -410,16 +410,22 @@ zapnutý, platí nad spoločným časom aj režimom bez limitu:
   (`binary_sensor.timelimit_simonka_uplny_zamok`, atribút `delivered` —
   server zapíše, keď si tablet po zámku stiahol zmeny) a
   dashboard aj Telegram píšu „zamkne sa, keď sa pripojí". Keď sa pripojí,
-  rodičom príde správa „Tablet sa pripojil a je zamknutý".
+  rodičom príde správa „Tablet sa pripojil a je zamknutý" (aj keby sa to
+  stalo počas reštartu HA — či ju už dostali, drží
+  `input_boolean.simona_zamok_tablet_hlasene`).
 - **PC** — hneď dostane príkaz na vypnutie (hlas „Úplný zámok – počítač sa
   vypína", vynútené vypnutie o 5 s). Keď ho niekto zapne, vypne sa znova,
   hneď ako sa agent ozve (hlási každých 30 s; po štarte Windows to trvá kým
   sa agent spustí) — aj keď je spoločný čas pozastavený (každé hlásenie
   zapíše `input_datetime.simona_zamok_pc_ozvanie`, záplata
   `patch-zamok-pc.py`). Obom rodičom príde správa za každé zapnutie PC
-  (najviac raz za 10 minút); keď PC 3 minúty od zapnutia zámku alebo od
-  svojho zapnutia neprestane hlásiť (agent príkaz neprijal alebo vypnutie
-  niekto zrušil), upozornenie, potom najviac raz za 30 minút. Zrušenie
+  (najviac raz za 10 minút; nové zapnutie HA spozná podľa `uptime_sec` z
+  agenta 1.2.2, so starším agentom až po 2 min ticha); keď PC 3 minúty od
+  zapnutia zámku alebo od svojho zapnutia neprestane hlásiť (agent príkaz
+  neprijal, vypnutie niekto zrušil alebo ho stále zapína), upozornenie, potom
+  najviac raz za 30 minút. Staršie automatizácie spoločného času (vypnutie po
+  vyčerpaní času, „PC po limite", „PC sa prestal hlásiť") počas zámku
+  nezasahujú. Zrušenie
   zámku do pár sekúnd po zapnutí ešte stihne vypínanie PC zastaviť
   (`shutdown /a`; PC sa vypína o 5 s). Agentov `block` sa zámerne
   nepoužíva: agent si ho pamätá do polnoci a keby sa zámok zrušil pri

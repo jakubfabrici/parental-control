@@ -15,8 +15,8 @@ $root = $PSScriptRoot
 # aktualizacii z OMV). Ked chyba, je to rucna instalacia.
 $AgentVersion = try {
   $vf = Join-Path (Split-Path $root -Parent) 'VERSION'
-  if (Test-Path $vf) { (Get-Content $vf -Raw).Trim() } else { '1.2.1' }
-} catch { '1.2.1' }
+  if (Test-Path $vf) { (Get-Content $vf -Raw).Trim() } else { '1.2.2' }
+} catch { '1.2.2' }
 
 # ---- DPI awareness (pred meranim obrazovky) ----
 try {
@@ -364,6 +364,14 @@ function Invoke-Tick {
   } catch { Log "Tick chyba: $_" WARN }
 }
 
+# Doba od startu Windows v s (GetTickCount je 32-bit a pretecie po 49,7 dna -
+# HA ju pouziva len na rozoznanie noveho zapnutia PC od zruseneho vypnutia).
+function Get-UptimeSec {
+  $t = [long][Environment]::TickCount
+  if ($t -lt 0) { $t += 4294967296 }
+  [int][math]::Floor($t / 1000)
+}
+
 # Hlasenie do HA. Bezi v casovacovej vetve slucky, nikdy nie v ceste HTTP
 # odpovede - inak by sme si vyrobili presne ten problem, ktory riesime.
 # Chyba sa loguje len pri prvom, piatom a dvadsiatom zlyhani po sebe: ked je
@@ -384,6 +392,7 @@ function Send-Push {
       version    = $AgentVersion
       needs_seed = [bool]$Script:StateLost
       lag_max    = [int]$Script:LagMaxToday
+      uptime_sec = Get-UptimeSec
     }
     # idle_sec/age_sec len z platnej snimky - nech HA radsej nedostane nic,
     # nez vymysel. Bez nich si HA necha predoslu znacku vstupu.

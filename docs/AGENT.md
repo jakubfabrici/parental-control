@@ -26,8 +26,13 @@ prijíma len z LAN). Telo:
 
 ```json
 {"used": 18, "active": true, "allowed": 105, "idle_sec": 3, "age_sec": 0,
- "version": "1.2.1", "needs_seed": false, "lag_max": 0}
+ "version": "1.2.2", "needs_seed": false, "lag_max": 0, "uptime_sec": 5400}
 ```
+
+`uptime_sec` (od 1.2.2) je doba od štartu Windows (GetTickCount, pretečie po
+49,7 dňa). HA z neho zapíše `input_datetime.simona_pc_start` a úplný zámok
+podľa toho rozozná nové zapnutie PC od zrušeného vypnutia; starší agent ho
+neposiela (HA vtedy zapíše 1970 a zámok berie za zapnutie až 2 min ticha).
 
 Polia znamenajú to isté ako v odpovedi na `tick` (tabuľka nižšie). Prijíma
 ho automatizácia `simona_cas_pc_hlasenie`: zapíše kontakt, značku vstupu

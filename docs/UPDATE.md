@@ -75,15 +75,17 @@ Stav k 4. 10. 2026:
 - **OMV:** `/var/www/pc-agent/` (mimo SMB), nginx drop-in nasadený, kľúč
   `/root/.pc-agent-update.key` vygenerovaný, `pc-agent-publish` v `/usr/local/bin`.
 - **Vydania:** `releases/1.0.0` (6. 9. 2026 — vtedajší agent + `Update-PcAgent.ps1`)
-  a `releases/1.2.1` (4. 10. 2026); `current/` je **1.2.1**. Oproti 1.2.0 sa
-  líši len komentármi a súborom `VERSION`.
+  a `releases/1.2.1` (4. 10. 2026), `releases/1.2.2` (10. 10. 2026 — pole
+  `uptime_sec` v hlásení pre úplný zámok); `current/` je **1.2.2**. 1.2.1 sa
+  oproti 1.2.0 líši len komentármi a súborom `VERSION`.
 - **1.2.0 išla na PC mimo kanála:** 15. 9. 2026 sa nasadila ručne; v
   `releases/` na OMV nie je. V koreni `/var/www/pc-agent/` ležia aj voľné
   `PcAgent.ps1` a `Watchdog-Agent.ps1` (dnes zhodné s 1.2.1) a adresár
   `incoming/` — pomôcky na ručné nasadenie; updater ich nepoužíva, berie
   len to, na čo ukazuje `current/manifest.json`.
 - **PC hlási verziu 1.2.0** (pole `version` v poslednom hlásení do HA,
-  3. 10. 2026). Či si 1.2.1 stiahne, sa ukáže po najbližšom zapnutí PC.
+  3. 10. 2026). Či si 1.2.2 stiahne, sa ukáže po najbližšom zapnutí PC
+  (HA to vidí na poli `version` aj na tom, či prichádza `uptime_sec`).
 - **Že updater na PC beží, overené nie je — a skôr to tak nevyzerá.**
   V prístupovom logu nginx na OMV (siaha po 20. 9.) nie je od PC
   (`192.168.1.104`) ani jedna požiadavka na `/pc-agent/`, hoci sa PC medzitým

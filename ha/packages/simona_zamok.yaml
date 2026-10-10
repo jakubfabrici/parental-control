@@ -36,6 +36,10 @@ input_boolean:
   simona_uplny_zamok:
     name: Simona úplný zámok
     icon: mdi:lock
+  # rodicia uz dostali spravu, ze tablet je zamknuty (preziva restart HA)
+  simona_zamok_tablet_hlasene:
+    name: Simona zámok – rodičia vedia o zamknutom tablete
+    icon: mdi:message-check
 
 input_datetime:
   # posledny prikaz na vypnutie PC kvoli zamku (skrti opakovanie)
@@ -68,6 +72,12 @@ input_datetime:
   # zdielani - input_datetime.simona_pc_kontakt sa vtedy nemeni)
   simona_zamok_pc_ozvanie:
     name: Simona – PC sa naposledy ozvalo
+    has_date: true
+    has_time: true
+  # start Windows podla posledneho hlasenia (agent 1.2.2+ posiela uptime_sec;
+  # starsi agent -> 1970) - nove zapnutie PC vs. zrusene vypnutie
+  simona_pc_start:
+    name: Simona – PC naštartované
     has_date: true
     has_time: true
 
@@ -151,6 +161,9 @@ automation:
       - choose:
           - conditions: "{{ trigger.id == 'on' }}"
             sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.simona_zamok_tablet_hlasene
               - variables:
                   pc_on: "{{ is_state('binary_sensor.simona_zamok_pc_zapnute', 'on') }}"
               - action: input_datetime.set_datetime
@@ -166,6 +179,7 @@ automation:
                   {{ state_attr('binary_sensor.timelimit_simonka_uplny_zamok', 'delivered') == true }}
                 timeout: "00:00:20"
               - variables:
+                  dorucene: "{{ state_attr('binary_sensor.timelimit_simonka_uplny_zamok', 'delivered') == true }}"
                   tablet: >-
                     {% if state_attr('binary_sensor.timelimit_simonka_uplny_zamok', 'delivered') == true %}tablet je zamknutý
                     {%- elif state_attr('binary_sensor.timelimit_simonka_uplny_zamok', 'applied') == true %}tablet nie je pripojený, zamkne sa hneď, ako sa pripojí
@@ -182,6 +196,13 @@ automation:
                           🔒 <b>Úplný zámok zapnutý</b> – {{ tablet }}{{
                           ', počítač vypínam' if pc_on else ', počítač je vypnutý a pri zapnutí sa hneď vypne' }}.
                           Zrušiť: /odomkni
+              - if:
+                  - condition: template
+                    value_template: "{{ dorucene }}"
+                then:
+                  - action: input_boolean.turn_on
+                    target:
+                      entity_id: input_boolean.simona_zamok_tablet_hlasene
         default:
           # vypnutie PC, ktore este neprebehlo, zrusit (agent vypina o 5 s,
           # takze to stihne len rychle zrusenie; PC uz vypnute na 'cancel'
@@ -217,28 +238,35 @@ automation:
                       {%- else %}🔓 <b>Úplný zámok sa ruší</b> – server TimeLimit zatiaľ
                       neodpovedá, most to skúša ďalej a tablet sa odomkne sám.{% endif %}
 
-  # Tablet bol pri zapnuti offline - sprava, ked si zamok stiahne
+  # Tablet bol pri zapnuti offline - sprava, ked si zamok stiahne. Kto to
+  # rodicom uz povedal, drzi input_boolean.simona_zamok_tablet_hlasene (aj cez
+  # restart HA); kym bezi zapnutie (caka na tablet), povie to ono.
   - id: simona_zamok_tablet_doruceny
     alias: "Simona zámok: tablet zamknutý"
     mode: single
+    max_exceeded: silent
     triggers:
-      # len skutocne false -> true; navrat z unavailable (restart mosta,
-      # MQTT) atribut neobnovi z false
       - trigger: state
         entity_id: binary_sensor.timelimit_simonka_uplny_zamok
         attribute: delivered
-        from: false
         to: true
-    conditions:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - delay: "00:00:30"
       - condition: state
         entity_id: input_boolean.simona_uplny_zamok
         state: "on"
-      # do 20 s od zapnutia to zachyti sprava "zapnuty" (wait_template)
+      - condition: state
+        entity_id: input_boolean.simona_zamok_tablet_hlasene
+        state: "off"
       - condition: template
         value_template: >-
-          {{ (as_timestamp(now())
-              - as_timestamp(states.input_boolean.simona_uplny_zamok.last_changed, 0)) > 20 }}
-    actions:
+          {{ state_attr('binary_sensor.timelimit_simonka_uplny_zamok', 'delivered') == true
+             and (state_attr('automation.simona_zamok_zapnutie_a_zrusenie', 'current') | int(0)) == 0 }}
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.simona_zamok_tablet_hlasene
       - repeat:
           for_each: ["5756450012", "8413756301"]
           sequence:
@@ -250,8 +278,9 @@ automation:
 
   # -- PC zapnute pocas zamku -------------------------------------------------
   # Kazde hlasenie pocas zamku = vypnut znova, najviac raz za minutu.
-  # Zapnutie PC = prve hlasenie po medzere > 2 min (agent hlasi kazdych 30 s,
-  # start Windows trva dlhsie); zamok zapnuty pri beziacom PC nie je
+  # Zapnutie PC = hlasenie, podla ktoreho Windows nastartovali po poslednom
+  # videnom hlaseni (agent 1.2.2+ posiela uptime_sec); so starsim agentom
+  # prve hlasenie po medzere > 2 min. Zamok zapnuty pri beziacom PC nie je
   # "zapla". Rodicom sprava za zapnutie (najviac raz za 10 min); ked PC
   # 3 min od zapnutia zamku alebo PC neprestane hlasit (agent prikaz neprijal
   # alebo vypnutie niekto zrusil), upozornenie, potom najviac raz za 30 min.
@@ -274,7 +303,15 @@ automation:
           teraz: "{{ as_timestamp(now()) }}"
           zamok_od: "{{ as_timestamp(states.input_boolean.simona_uplny_zamok.last_changed, 0) }}"
           videne: "{{ as_timestamp(states('input_datetime.simona_zamok_pc_videne'), 0) }}"
-          nove: "{{ (teraz - ([videne, zamok_od] | max)) > 120 }}"
+          # start Windows z toho isteho hlasenia (len pri ozvani; 1970 = starsi agent)
+          start: >-
+            {% set st = as_timestamp(states('input_datetime.simona_pc_start'), 0) %}
+            {{ st if trigger.entity_id == 'input_datetime.simona_zamok_pc_ozvanie' and st > 1000000000 else 0 }}
+          # nove zapnutie: Windows nastartovali po poslednom videnom hlaseni
+          # (alebo po zapnuti zamku); bez uptime aspon 2 min ticha
+          nove: >-
+            {% set ref = [videne, zamok_od] | max %}
+            {{ (start > ref + 5) if start > 0 else ((teraz - ref) > 120) }}
       - action: input_datetime.set_datetime
         target:
           entity_id: input_datetime.simona_zamok_pc_videne
@@ -308,8 +345,8 @@ automation:
           sprava: >-
             {% if druh == 'zapla' %}🔒 Simonka zapla počítač počas úplného zámku – vypínam ho.{{
               '' if ok else ' ⚠️ Agent na PC na príkaz neodpovedá.' }}
-            {%- elif druh == 'varovanie' %}⚠️ Počítač sa počas úplného zámku nedarí vypnúť – stále
-            sa hlási ({{ (trva / 60) | round(0) | int }} min). {{ 'Agent príkaz prijal, vypnutie asi niekto zrušil.'
+            {%- elif druh == 'varovanie' %}⚠️ Počítač sa počas úplného zámku stále zapína alebo
+            sa nedá vypnúť – hlási sa už {{ (trva / 60) | round(0) | int }} min. {{ 'Agent príkazy na vypnutie prijíma.'
               if ok else 'Agent na príkaz neodpovedá.' }}{% endif %}
       - if:
           - condition: template

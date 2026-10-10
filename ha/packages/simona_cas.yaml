@@ -668,6 +668,15 @@ automation:
       - condition: template
         value_template: "{{ trigger.json is defined and trigger.json.used is defined }}"
     actions:
+      # Start Windows (agent 1.2.2+ posiela uptime_sec, inak 1970) - PRED
+      # ozvanim, na ktore reaguje uplny zamok.
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_pc_start
+        data:
+          timestamp: >-
+            {% set up = trigger.json.uptime_sec | default(-1) | int(-1) %}
+            {{ (as_timestamp(now()) - up) | int if up >= 0 else 0 }}
       # Kazde hlasenie, aj pri pozastavenom zdielani - podla neho uplny zamok
       # (simona_zamok.yaml) vidi zapnute PC. Kontakt sa pri pauze nezapisuje
       # (skreslil by odstup nizsie).
@@ -828,6 +837,11 @@ automation:
       - condition: numeric_state
         entity_id: sensor.simona_cas_zostava
         below: 1
+      # Uplny zamok vypina PC sam (simona_zamok.yaml) - nemiesat sa do toho
+      # a neminat dennu snimku vypnutia.
+      - condition: state
+        entity_id: input_boolean.simona_uplny_zamok
+        state: "off"
       # navrat zostatku z nedostupnosti (restart add-onu TimeLimit) nie je
       # "cas sa prave minul"
       - condition: template
@@ -855,6 +869,10 @@ automation:
           action: msg
           args: Čas na dnes sa minul - počítač sa o minútu vypne.
       - delay: "00:01:00"
+      # zamok zapnuty pocas tej minuty - PC vypina on, snimka ostava -1
+      - condition: state
+        entity_id: input_boolean.simona_uplny_zamok
+        state: "off"
       # Snimka az tesne pred vypnutim, nech sa tie 3 minuty po opatovnom
       # zapnuti rataju od skutocneho konca.
       - action: input_number.set_value
@@ -924,6 +942,10 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_pc_pouziva_sa
         state: "on"
+      # pocas uplneho zamku PC vypina zamok a rodicom pise sam
+      - condition: state
+        entity_id: input_boolean.simona_uplny_zamok
+        state: "off"
       # Az ked uz raz po limite vypnuty bol ...
       - condition: numeric_state
         entity_id: input_number.simona_pc_snap_vypnutie
@@ -1000,6 +1022,12 @@ automation:
       - condition: state
         entity_id: input_boolean.simona_zdielany_cas
         state: "on"
+      # Ticho po vypnuti uplnym zamkom nie je zamrznuty agent.
+      - condition: template
+        value_template: >-
+          {{ is_state('input_boolean.simona_uplny_zamok', 'off')
+             and (as_timestamp(states('input_datetime.simona_pc_kontakt'), 0)
+                  - as_timestamp(states('input_datetime.simona_zamok_pc_vypnutie'), 0)) | abs > 300 }}
       # Ked sa cas nerata, mlciaci agent nic nestoji.
       - condition: state
         entity_id: input_boolean.simona_bez_limitu
