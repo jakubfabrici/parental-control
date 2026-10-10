@@ -41,7 +41,8 @@ script:
             {{ '\n' }}<i>Rozvrh na dnes ({{ den }}): {{ rozvrh }} min{% if rozpocet != rozvrh %} · dnes ručne upravené na {{ rozpocet }} min{% endif %}</i>
             {{ '\n' }}<i>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit') | int(0) }} min · PC povolené {{ states('sensor.simona_pc_povolene') | int(0) }} min</i>
             {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}{% if is_state('input_boolean.simona_bez_limitu','on') %}
-            {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}{% if is_state('switch.timelimit_simonka_zablokovane','on') %}
+            {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}{% if is_state('input_boolean.simona_uplny_zamok','on') %}
+            {{ '\n' }}🔐 <b>Úplný zámok</b> — tablet je zamknutý, počítač sa pri zapnutí hneď vypne{% elif is_state('switch.timelimit_simonka_zablokovane','on') %}
             {{ '\n' }}🔒 <b>Tablet je zablokovaný</b> (TimeLimit){% endif %}
           klavesnica:
             - "🔄 Obnoviť:/pct_stav"
@@ -50,6 +51,7 @@ script:
             - "{{ '▶ Zapnúť zdieľanie:/pct_start' if is_state('input_boolean.simona_zdielany_cas','off') else '⏸ Pozastaviť:/pct_pauza' }}"
             - "{{ '♾ Vypnúť režim bez limitu:/pct_limit_zap' if is_state('input_boolean.simona_bez_limitu','on') else '♾ Bez limitu (nerátať čas):/pct_limit_vyp' }}"
             - "⛔ Ukončiť čas teraz:/pct_stop"
+            - "{{ '🔓 Zrušiť úplný zámok:/pcz_odomkni' if is_state('input_boolean.simona_uplny_zamok','on') else '🔐 Úplný zámok:/pcz_zamok' }}"
             - "⬅ Menu:/pcm_main"
       - if:
           - condition: template

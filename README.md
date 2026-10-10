@@ -263,6 +263,7 @@ ho zámerne nerobí, do automatizácie pridá len poznámku.
 | `counter.simona_pc_skok_zamietnuty` | Koľko hlásení po sebe prinieslo spotrebu, ktorá sa nedala stihnúť (HA ju zamietol). |
 | `input_boolean.simona_zdielany_cas` | Hlavný vypínač. Keď je `off`, HA nezasahuje do ničoho. |
 | `input_boolean.simona_bez_limitu` | Režim bez limitu — kým je zapnutý, čas sa neráta. |
+| `input_boolean.simona_uplny_zamok` | [Úplný zámok](#úplný-zámok) — tablet celý zamknutý, PC sa hneď vypne a pri každom zapnutí znova. `binary_sensor.timelimit_simonka_uplny_zamok` potvrdzuje, že ho most uplatnil. |
 | `input_number.simona_offset_tablet`, `…_pc` | Minúty, ktoré sa nezapočítali (nazbierané počas režimu bez limitu). |
 | `input_number.simona_snap_tablet`, `…_pc` | Stav v okamihu zapnutia režimu. |
 | `sensor.simona_pc_zapocitane` | Minúty pri PC po odrátaní nezapočítaných. |
@@ -298,6 +299,7 @@ Píše sa aj priamo:
 | `/cas_stop` | Ukončí čas hneď — rozpočet zroluje na už spotrebované, takže obom zariadeniam zostane 0 (na tablete idú ďalej len vždy povolené aplikácie). |
 | `/cas_pauza`, `/cas_start` | Vypne / zapne zdieľanie (kým je vypnuté, HA nezasahuje). |
 | `/cas_bez`, `/cas_limit` | Zapne / vypne režim bez limitu. |
+| `/zamok`, `/odomkni` | Zapne / zruší [úplný zámok](#úplný-zámok) (napísaný príkaz platí hneď; tlačidlo „🔐 Úplný zámok" v `/cas` sa najprv opýta). |
 
 Prístup majú len chaty Jakub (`5756450012`) a Mama (`8413756301`), rovnako ako
 pri ostatných automatizáciách.
@@ -383,6 +385,30 @@ script.simona_tv_oznam` — to je „pošli a zabudni", takže prípadná chyba
 zostane v skripte. (`rest_command` sa naopak správa správne, `continue_on_error`
 tam funguje — overené na trasách `simona_cas_pc_tick`.)
 
+## Úplný zámok
+
+Jeden prepínač `input_boolean.simona_uplny_zamok` (dashboard, Telegram
+`/zamok` / `/odomkni`, balík `ha/packages/simona_zamok.yaml`). Kým je
+zapnutý, platí nad spoločným časom aj režimom bez limitu:
+
+- **Tablet** — most TimeLimit (`{"action":"full_lock"}`) zablokuje natrvalo
+  **všetky** kategórie Simonky vrátane „Allowed Apps" so systémovými appkami
+  a skryje ich upozornenia. TimeLimit potom prekryje svojou obrazovkou
+  „Blocked" každú appku aj domovskú obrazovku; voľná ostane len systémová
+  lišta a núdzové volanie. Samotné odomknutie obrazovky Androidu sa takto
+  zakázať nedá (TimeLimit to nevie, companion appka tiež nie) — zablokované
+  je všetko, čo sa za ním dá otvoriť. Most zámok drží aj cez reštart, každých
+  15 s ho vynucuje (keď niečo odblokuje appka rodiča) a po zrušení vráti
+  kategórie do stavu pred zámkom. Tablet sa zamkne, keď je online — pri
+  zhasnutej obrazovke hneď po jej zapnutí. V HA to potvrdzuje
+  `binary_sensor.timelimit_simonka_uplny_zamok`.
+- **PC** — hneď dostane príkaz na vypnutie (hlas „Úplný zámok – počítač sa
+  vypína", vynútené vypnutie o 5 s). Keď ho niekto zapne, vypne sa znova,
+  hneď ako sa agent ozve (hlási každých 30 s; po štarte Windows to trvá kým
+  sa agent spustí). Obom rodičom príde Telegram. Agentov `block` sa zámerne
+  nepoužíva: agent si ho pamätá do polnoci a keby sa zámok zrušil pri
+  vypnutom PC, vypínal by ho aj potom.
+
 ## Dashboard v Home Assistante
 
 V bočnom paneli je **Simonka** (`/simonka-cas`) — samostatný dashboard s
@@ -409,6 +435,7 @@ s tlačidlom na synchronizáciu.
 |---|---|
 | `ha/packages/simona_cas.yaml` | `/config/packages/` — rozvrh, účtovanie, prepočty, cieľ pre TimeLimit, PC, skripty pre dashboard |
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
+| `ha/packages/simona_zamok.yaml` | `/config/packages/` — úplný zámok (prepínač, vypínanie PC, Telegram `/zamok` `/odomkni`) |
 | `ha/packages/simona_tablet_sync.yaml` | `/config/packages/` — stav obrazovky tabletu (senzor Interactive z companion appky) posiela serveru TimeLimit, ten podľa neho tablet synchronizuje |
 | `ha/packages/simona_tablet_ochrana.yaml` | `/config/packages/` — Telegram pri manipulácii s TimeLimit na tablete a keď v ňom nie je prihlásená Simonka |
 | `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5; staršie sú záznamom histórie |

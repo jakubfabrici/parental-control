@@ -121,7 +121,8 @@ Generický príkaz na `timelimit/cmd` (JSON): `sync`, `block`/`unblock`
 (`child`/`category`, `minutes`), `add_time`, `set_extra`, `set_limit`,
 `no_limits` (`on`, `minutes`), `add_child`, `add_category`, `enroll`, `raw`
 (`actions: [{type, …}]` – únikový východ na ľubovoľnú rodičovskú akciu),
-`allow_app` / `disallow_app` (`child`, `package`).
+`allow_app` / `disallow_app` (`child`, `package`), `full_lock` (`child`,
+`on`), `screen` (`state`).
 Chyby idú na `timelimit/bridge/error` a do logu add-onu.
 
 ### Vždy povolené aplikácie
@@ -280,6 +281,18 @@ rodičom Telegram — aj keď na tablete v TimeLimit dlhšie než 2 minúty nie 
 prihlásená Simonka. Ochrana tabletu je dnes len *simple device admin*; dá sa
 zvýšiť na *password device admin*, prípadne *device owner* (vyžaduje reset
 tabletu a adb) — potom TimeLimit zabráni aj odinštalovaniu a resetu.
+
+### Úplný zámok
+
+Príkaz `{"action":"full_lock","child":"Simonka","on":true|false}` (posiela ho
+`ha/packages/simona_zamok.yaml`). Zapnutie si zapamätá stav kategórií dieťaťa
+(`state.fullLocks`), potom všetky jeho kategórie zablokuje natrvalo
+(`UPDATE_CATEGORY_TEMPORARILY_BLOCKED` bez `endTime`) a zapne skrývanie
+upozornení (`UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS`). Pri každej
+synchronizácii (15 s) to vynúti znova — kategóriu pridanú počas zámku tiež.
+Zrušenie vráti každú kategóriu do pôvodného stavu (aj dočasný blok, ak ešte
+nevypršal). Stav ukazuje `binary_sensor.timelimit_simonka_uplny_zamok`
+(atribút `full_lock` v stave dieťaťa).
 
 ### Strop na dnes a pravidlá appky
 

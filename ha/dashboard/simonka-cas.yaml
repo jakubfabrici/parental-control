@@ -16,6 +16,40 @@ views:
     type: sections
     max_columns: 2
     sections:
+      # -- Uplny zamok --------------------------------------------------------
+      # Balik packages/simona_zamok.yaml: tablet celý zamknutý cez TimeLimit,
+      # PC sa hneď vypne a pri každom zapnutí znova.
+      - type: grid
+        cards:
+          - type: heading
+            heading: Úplný zámok
+            heading_style: title
+            icon: mdi:lock
+
+          - type: tile
+            entity: input_boolean.simona_uplny_zamok
+            name: Úplný zámok (tablet + PC)
+            icon: mdi:lock
+            tap_action:
+              action: toggle
+              confirmation:
+                text: >-
+                  Prepnúť úplný zámok? Pri zapnutí sa tablet celý zamkne a
+                  počítač sa hneď vypne (a pri každom zapnutí znova).
+
+          - type: markdown
+            content: >-
+              {% if is_state('input_boolean.simona_uplny_zamok','on') %}### 🔐 Zámok je zapnutý
+
+              📱 Tablet: {{ 'zamknutý ✅' if is_state('binary_sensor.timelimit_simonka_uplny_zamok','on')
+              else 'čaká na most ⏳' }} &nbsp;·&nbsp; 🖥 Počítač: {{ 'zapnutý – vypína sa ⏳'
+              if is_state('binary_sensor.simona_pc_online','on') else 'vypnutý ✅' }}
+
+              <small>Tablet sa zamkne, keď je online (pri zhasnutej obrazovke hneď po
+              jej zapnutí). Zrušiť aj cez Telegram /odomkni.</small>
+              {% else %}Zámok je vypnutý — tablet aj počítač idú podľa spoločného
+              času.{% endif %}
+
       # -- Prehlad ------------------------------------------------------------
       - type: grid
         cards:

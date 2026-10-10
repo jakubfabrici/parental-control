@@ -1,0 +1,270 @@
+# ============================================================================
+# Simona: UPLNY ZAMOK  (tablet iPlay 50 + PC 192.168.1.104)
+#
+# Jeden prepinac input_boolean.simona_uplny_zamok. Kym je zapnuty:
+#
+#   tablet - most TimeLimit zablokuje natrvalo VSETKY kategorie Simonky, aj
+#            "Allowed Apps" so systemovymi appkami; TimeLimit potom prekryje
+#            svojou obrazovkou kazdu appku aj domovsku obrazovku a skryje
+#            upozornenia. Volne ostane len systemova lista a nudzove volanie.
+#            Samotne odomknutie obrazovky Androidu ovladat nevie nikto z nas.
+#            Most zamok drzi aj cez restart a kazdych 15 s ho vynucuje; po
+#            zruseni vrati kategorie do stavu pred zamkom. (Tablet sa zamkne,
+#            ked je online - pri zhasnutej obrazovke hned po jej zapnuti.)
+#   PC     - hned sa vypne (agent: 'shutdown' o 5 s, vynutene). Ked ho niekto
+#            zapne, vypne sa znova hned, ako sa agent ozve (hlasi kazdych 30 s).
+#            Agentov 'block' sa zamerne nepouziva: pamata si ho do polnoci a
+#            keby sa zamok zrusil pri vypnutom PC, vypinal by PC sam aj potom.
+#
+# Ovladanie: dashboard /simonka-cas, Telegram /zamok a /odomkni, tlacidlo
+# v /cas (s potvrdenim). Nadradeny zdieľanému casu aj rezimu bez limitu.
+# ============================================================================
+
+input_boolean:
+  simona_uplny_zamok:
+    name: Simona úplný zámok
+    icon: mdi:lock
+
+input_datetime:
+  # Kedy sme naposledy poslali PC prikaz na vypnutie kvoli zamku - skrti
+  # opakovanie, ked agent hlasi kazdych 30 s.
+  simona_zamok_pc_vypnutie:
+    name: Simona zámok – posledné vypnutie PC
+    has_date: true
+    has_time: true
+
+script:
+  simona_zamok_vypni_pc:
+    alias: "Simona zámok: vypni PC"
+    icon: mdi:power
+    mode: single
+    max_exceeded: silent
+    sequence:
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_zamok_pc_vypnutie
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - action: rest_command.pc_cmd
+        continue_on_error: true
+        data:
+          action: msg
+          args: "Úplný zámok – počítač sa vypína."
+      - action: rest_command.pc_cmd
+        continue_on_error: true
+        data:
+          action: shutdown
+          args: ""
+          delay: 5
+
+automation:
+  # -- Zapnutie / zrusenie --------------------------------------------------
+  - id: simona_zamok_zmena
+    alias: "Simona zámok: zapnutie a zrušenie"
+    mode: queued
+    max: 5
+    triggers:
+      - trigger: state
+        entity_id: input_boolean.simona_uplny_zamok
+        from: "off"
+        to: "on"
+        id: "on"
+      - trigger: state
+        entity_id: input_boolean.simona_uplny_zamok
+        from: "on"
+        to: "off"
+        id: "off"
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: timelimit/cmd
+          payload: >-
+            {{ {'action': 'full_lock', 'child': 'Simonka', 'on': trigger.id == 'on'} | to_json }}
+      - choose:
+          - conditions: "{{ trigger.id == 'on' }}"
+            sequence:
+              - action: script.turn_on
+                target:
+                  entity_id: script.simona_zamok_vypni_pc
+              - variables:
+                  pc_on: "{{ is_state('binary_sensor.simona_pc_online', 'on') }}"
+              - repeat:
+                  for_each: ["5756450012", "8413756301"]
+                  sequence:
+                    - action: telegram_bot.send_message
+                      continue_on_error: true
+                      data:
+                        chat_id: "{{ repeat.item }}"
+                        parse_mode: html
+                        message: >-
+                          🔒 <b>Úplný zámok zapnutý.</b> Tablet je celý zamknutý{{
+                          ', počítač vypínam' if pc_on else ', počítač je vypnutý a pri zapnutí sa hneď vypne' }}.
+                          Zrušiť: /odomkni
+        default:
+          - repeat:
+              for_each: ["5756450012", "8413756301"]
+              sequence:
+                - action: telegram_bot.send_message
+                  continue_on_error: true
+                  data:
+                    chat_id: "{{ repeat.item }}"
+                    parse_mode: html
+                    message: >-
+                      🔓 <b>Úplný zámok zrušený.</b> Tablet aj počítač idú zase podľa
+                      spoločného času.
+
+  # -- PC zapnute pocas zamku -------------------------------------------------
+  # Agent hlasi kazdych 30 s (aj tik zo zachrannej siete zapisuje kontakt).
+  # Kazde ozvanie pocas zamku = vypnut znova, najviac raz za minutu.
+  - id: simona_zamok_pc_zapnute
+    alias: "Simona zámok: PC zapnuté počas zámku"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: input_datetime.simona_pc_kontakt
+      - trigger: state
+        entity_id: binary_sensor.simona_pc_online
+        to: "on"
+      - trigger: state
+        entity_id: input_boolean.simona_pc_pouziva_sa
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.simona_uplny_zamok
+        state: "on"
+      - condition: template
+        value_template: >-
+          {{ (as_timestamp(now())
+              - as_timestamp(states('input_datetime.simona_zamok_pc_vypnutie'), 0)) > 60 }}
+    actions:
+      - action: script.turn_on
+        target:
+          entity_id: script.simona_zamok_vypni_pc
+      - repeat:
+          for_each: ["5756450012", "8413756301"]
+          sequence:
+            - action: telegram_bot.send_message
+              continue_on_error: true
+              data:
+                chat_id: "{{ repeat.item }}"
+                message: "🔒 Simonka zapla počítač počas úplného zámku – vypínam ho."
+
+  # -- Zosuladenie s mostom ---------------------------------------------------
+  # Most si zamok pamata sam; toto ho dorovna po restarte HA alebo mosta a
+  # raz za 5 minut pre istotu (prikaz je idempotentny).
+  - id: simona_zamok_obnova
+    alias: "Simona zámok: zosúladiť s mostom"
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id: sensor.timelimit_most
+        to: pripojené
+      - trigger: time_pattern
+        minutes: "/5"
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ states('input_boolean.simona_uplny_zamok') in ['on', 'off']
+             and (is_state('input_boolean.simona_uplny_zamok', 'on')
+                  != is_state('binary_sensor.timelimit_simonka_uplny_zamok', 'on')) }}
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: timelimit/cmd
+          payload: >-
+            {{ {'action': 'full_lock', 'child': 'Simonka',
+                'on': is_state('input_boolean.simona_uplny_zamok', 'on')} | to_json }}
+
+  # -- Telegram ---------------------------------------------------------------
+  # /zamok a /odomkni napisane rucne plati hned; tlacidlo v /cas sa najprv
+  # opyta (vypne PC). Tlacidla maju vlastny prefix /pcz_, nech ich neprebera
+  # simona_cas_callback (/pct_).
+  - id: simona_zamok_telegram
+    alias: "Simona zámok: Telegram"
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: event
+        event_type: telegram_command
+        event_data:
+          command: /zamok
+        id: zamok
+      - trigger: event
+        event_type: telegram_command
+        event_data:
+          command: /odomkni
+        id: odomkni
+      - trigger: event
+        event_type: telegram_callback
+        id: tlacidlo
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.event.data.chat_id | string in ['5756450012', '8413756301']
+             and (trigger.id != 'tlacidlo' or trigger.event.data.data.startswith('/pcz_')) }}
+    actions:
+      - variables:
+          volba: >-
+            {{ trigger.event.data.data if trigger.id == 'tlacidlo' else '/' ~ trigger.id }}
+          chat: "{{ trigger.event.data.chat_id }}"
+          sprava_id: >-
+            {{ trigger.event.data.message.message_id if trigger.id == 'tlacidlo' else 0 }}
+      - if:
+          - condition: template
+            value_template: "{{ trigger.id == 'tlacidlo' }}"
+        then:
+          - action: telegram_bot.answer_callback_query
+            continue_on_error: true
+            data:
+              callback_query_id: "{{ trigger.event.data.id }}"
+              message: >-
+                {{ {'/pcz_zamok': 'Potvrď zámok', '/pcz_zamok_ano': 'Úplný zámok zapnutý',
+                    '/pcz_odomkni': 'Zámok zrušený', '/pcz_zrus': 'Zrušené'}.get(volba, 'OK') }}
+      - choose:
+          # tlacidlo -> najprv potvrdenie
+          - conditions: "{{ volba == '/pcz_zamok' }}"
+            sequence:
+              - action: telegram_bot.edit_message
+                continue_on_error: true
+                data:
+                  chat_id: "{{ chat }}"
+                  message_id: "{{ sprava_id }}"
+                  parse_mode: html
+                  message: >-
+                    🔒 <b>Zapnúť úplný zámok?</b>{{ '\n' }}Tablet sa celý zamkne
+                    a počítač sa hneď vypne (a pri každom zapnutí znova).
+                  inline_keyboard:
+                    - "🔒 Áno, zamknúť:/pcz_zamok_ano"
+                    - "Späť:/pcz_zrus"
+          - conditions: "{{ volba in ['/zamok', '/pcz_zamok_ano'] }}"
+            sequence:
+              - action: input_boolean.turn_on
+                target:
+                  entity_id: input_boolean.simona_uplny_zamok
+          - conditions: "{{ volba in ['/odomkni', '/pcz_odomkni'] }}"
+            sequence:
+              - action: input_boolean.turn_off
+                target:
+                  entity_id: input_boolean.simona_uplny_zamok
+      # prehlad /cas (pri tlacidle sa sprava prepise na novy stav)
+      - if:
+          - condition: template
+            value_template: "{{ volba != '/pcz_zamok' }}"
+        then:
+          - delay: "00:00:02"
+          - if:
+              - condition: template
+                value_template: "{{ trigger.id == 'tlacidlo' }}"
+            then:
+              - action: script.simona_cas_prehlad
+                data:
+                  chat_id: "{{ chat }}"
+                  message_id: "{{ sprava_id }}"
+            else:
+              - action: script.simona_cas_prehlad
+                data:
+                  chat_id: "{{ chat }}"

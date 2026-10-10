@@ -444,6 +444,8 @@ function childSummary(child, now) {
         // zablokovanie dietata = vsetky vrcholove kategorie vratane Allowed Apps
         blocked: (() => { const all = topCatsOf(child.id); return all.length > 0 && all.every((c) => isBlocked(c, now)); })(),
         no_limits: !!(child.disableLimitsUntil && child.disableLimitsUntil > now),
+        full_lock: !!(state.fullLocks && state.fullLocks[child.id]),
+        full_lock_since: state.fullLocks && state.fullLocks[child.id] ? new Date(state.fullLocks[child.id].since).toISOString() : null,
         no_limits_until: child.disableLimitsUntil || 0,
         categories: all
     };
@@ -774,6 +776,77 @@ async function refreshSyncStatus() {
     if (r && Array.isArray(r.devices)) syncStatus = r;
 }
 
+// Uplny zamok (v HA input_boolean.simona_uplny_zamok, prikaz
+// {"action":"full_lock","child":"Simonka","on":true}): vsetky kategorie
+// dietata zablokovane natrvalo - aj "Allowed Apps" so systemovymi appkami
+// (.dummy.system_image), takze TimeLimit prekryje svojou obrazovkou kazdu
+// appku aj domovsku obrazovku - a upozornenia blokovanych appiek skryte.
+// Stav drzi most (aj cez restart) a pri kazdej synchronizacii ho vynucuje
+// (ked medzitym nieco odblokuje appka rodica alebo vyprsi docasny blok).
+// Po zruseni vrati kazdu kategoriu do stavu, v akom bola pred zamkom.
+function catLockState(cat) {
+    const b = cat.base || {};
+    return {
+        blocked: !!b.tempBlocked, until: b.tempBlockTime || 0,
+        notif: !!b.blockAllNotifications, notifDelay: Number(b.blockNotificationDelay) || 0
+    };
+}
+
+async function setFullLock(child, on) {
+    state.fullLocks = state.fullLocks || {};
+    const rec = state.fullLocks[child.id];
+    if (on) {
+        if (!rec) {
+            const prev = {};
+            for (const cat of catsOf(child.id)) prev[cat.base.categoryId] = catLockState(cat);
+            state.fullLocks[child.id] = { since: Date.now(), prev };
+            log('uplny zamok ZAPNUTY pre', child.name);
+        }
+        saveState();
+        await enforceFullLocks();
+        return;
+    }
+    if (!rec) return;
+    const now = Date.now();
+    const actions = [];
+    for (const cat of catsOf(child.id)) {
+        const categoryId = cat.base.categoryId;
+        const p = rec.prev[categoryId] || { blocked: false, until: 0, notif: false, notifDelay: 0 };
+        const stillBlocked = p.blocked && (!p.until || p.until > now);
+        actions.push(stillBlocked
+            ? actBlock(categoryId, true, p.until || undefined)
+            : actBlock(categoryId, false));
+        actions.push({ type: 'UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS', categoryId, blocked: p.notif, blockDelay: p.notifDelay });
+    }
+    delete state.fullLocks[child.id];
+    saveState();
+    log('uplny zamok ZRUSENY pre', child.name);
+    if (actions.length > 0) {
+        await pushActions(actions);
+        await pull();
+    }
+}
+
+async function enforceFullLocks() {
+    const actions = [];
+    for (const [childId, rec] of Object.entries(state.fullLocks || {})) {
+        if (!userById(childId)) { delete state.fullLocks[childId]; continue; }
+        for (const cat of catsOf(childId)) {
+            const categoryId = cat.base.categoryId;
+            // kategoria pridana pocas zamku: po zruseni ostane odblokovana
+            if (!rec.prev[categoryId]) rec.prev[categoryId] = { blocked: false, until: 0, notif: false, notifDelay: 0 };
+            const b = cat.base;
+            if (!(b.tempBlocked && !b.tempBlockTime)) actions.push(actBlock(categoryId, true));
+            if (!b.blockAllNotifications) actions.push({ type: 'UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS', categoryId, blocked: true, blockDelay: 0 });
+        }
+    }
+    if (actions.length > 0) {
+        log('uplny zamok: vynucujem', actions.length, 'akcii');
+        await pushActions(actions);
+        await pull();
+    }
+}
+
 async function addChild(name, timeZone) {
     const userId = genId();
     await pushActions([{ type: 'ADD_USER', name, userId, userType: 'child', timeZone: timeZone || 'Europe/Bratislava' }]);
@@ -832,7 +905,7 @@ function discover(component, objectId, config) {
         unique_id: objectId,
         object_id: objectId,
         availability: [{ topic: availabilityTopic }],
-        origin: { name: 'TimeLimit most', sw_version: '1.17.0-13', support_url: 'https://github.com/jakubfabrici/parental-control' }
+        origin: { name: 'TimeLimit most', sw_version: '1.17.0-14', support_url: 'https://github.com/jakubfabrici/parental-control' }
     }, config);
     pub(topic, payload);
     state.published[topic] = true;
@@ -906,6 +979,11 @@ function publishDiscovery() {
         discover('sensor', p + 'limit_today', {
             name: 'Limit dnes', icon: 'mdi:calendar-clock', device: dev, unit_of_measurement: 'min',
             state_topic: t + '/state', value_template: '{{ value_json.limit_min if value_json.limit_min is not none else "unknown" }}'
+        });
+        mark('binary_sensor', p + 'full_lock');
+        discover('binary_sensor', p + 'full_lock', {
+            name: 'Úplný zámok', icon: 'mdi:lock', device: dev,
+            state_topic: t + '/state', value_template: "{{ 'ON' if value_json.full_lock else 'OFF' }}"
         });
         mark('switch', p + 'blocked');
         discover('switch', p + 'blocked', {
@@ -1126,6 +1204,10 @@ async function handleCommand(cmd) {
             if (!child) throw new Error('add_category potrebuje child');
             await addCategory(child, cmd.title, cmd.default !== false);
             return;
+        case 'full_lock':
+            if (!child) throw new Error('full_lock potrebuje child');
+            await setFullLock(child, cmd.on !== false);
+            return;
         case 'block':
             if (cat) await setCategoryBlocked(cat, cmd.blocked !== false, cmd.minutes);
             else if (child) await setChildBlocked(child, cmd.blocked !== false, cmd.minutes);
@@ -1235,6 +1317,7 @@ async function tick() {
             await pull();
             await refreshSyncStatus();
             await ensureRelaxedPrimaryDevice();
+            await enforceFullLocks();
             await cleanupHaRules();
             await enforceTargets();
         } catch (e) {
