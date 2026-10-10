@@ -307,8 +307,14 @@ most to skúša pri každej synchronizácii. Kým záznam existuje, most odmietn
 `binary_sensor.timelimit_simonka_uplny_zamok` je zapnutý, kým záznam
 existuje (aj počas rušenia). Atribúty: `since`, `releasing`, `applied`
 (server má všetky kategórie natrvalo zablokované), `delivered` a
-`delivered_at` (odkedy bolo uplatnené, bolo pripojené zariadenie s
-prihláseným dieťaťom — server mu nový stav poslal).
+`delivered_at` (zariadenie s prihláseným dieťaťom si po poslednom pushe
+zámku stiahlo zmeny — doplnok servera zapisuje čas každého `pull-status`,
+`GET /status` → `pulls`). Zoznam pripojených zariadení na to nestačí:
+socket odpojeného tabletu (lietadlový režim) server ešte chvíľu drží.
+
+Všetka práca so zámkom (príkaz aj vynucovanie v tiku) ide jedna po druhej a
+zrušený zámok sa zmaže len podľa stavu stiahnutého zo servera v tom istom
+kroku — zrušenie počas ešte nedokončeného pushu zámku tak nič nepokazí.
 
 ### Strop na dnes a pravidlá appky
 

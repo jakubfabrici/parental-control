@@ -3,13 +3,14 @@
 zdielanom case.
 
 Hlasenie agenta (webhook, kazdych 30 s) zastavovala hned prva podmienka
-simona_cas_pc_hlasenie "zdielany cas zapnuty". Teraz hlasenie prejde aj
-vtedy, ked je zapnuty zamok, a ako prve zapise
-input_datetime.simona_zamok_pc_ozvanie (na to reaguje simona_zamok_pc_zapnute).
-Zvysok - kontakt, spotreba, vstup - bezi ako doteraz len pri zapnutom
-zdielani; input_datetime.simona_pc_kontakt sa pri pauze zamerne nemeni,
-inak by po obnoveni zdielania prisny strop rastu spotreby (odstup od
-kontaktu) zahodil skutocny narast ako nehodnoverny.
+simona_cas_pc_hlasenie "zdielany cas zapnuty". Teraz kazde hlasenie najprv
+zapise input_datetime.simona_zamok_pc_ozvanie (z neho binary_sensor
+.simona_zamok_pc_zapnute, na neho reaguje simona_zamok_pc_zapnute) a az
+potom sa pri pozastavenom zdielani zastavi. Zvysok - kontakt, spotreba,
+vstup - bezi ako doteraz len pri zapnutom zdielani;
+input_datetime.simona_pc_kontakt sa pri pauze zamerne nemeni, inak by po
+obnoveni zdielania prisny strop rastu spotreby (odstup od kontaktu) zahodil
+skutocny narast ako nehodnoverny.
 
 Idempotentne. Pouzitie: python3 patch-zamok-pc.py simona_cas.yaml
 """
@@ -42,29 +43,17 @@ swap("hlasenie-zamok", """        local_only: true
           novy: >-
 """, """        local_only: true
     conditions:
-      - condition: or
-        conditions:
-          - condition: state
-            entity_id: input_boolean.simona_zdielany_cas
-            state: "on"
-          - condition: state
-            entity_id: input_boolean.simona_uplny_zamok
-            state: "on"
       - condition: template
         value_template: "{{ trigger.json is defined and trigger.json.used is defined }}"
     actions:
-      # Uplny zamok (simona_zamok.yaml) vidi zapnute PC aj pri pozastavenom
-      # zdielani - kontakt sa vtedy nezapisuje (skreslil by odstup nizsie).
-      - if:
-          - condition: state
-            entity_id: input_boolean.simona_uplny_zamok
-            state: "on"
-        then:
-          - action: input_datetime.set_datetime
-            target:
-              entity_id: input_datetime.simona_zamok_pc_ozvanie
-            data:
-              datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      # Kazde hlasenie, aj pri pozastavenom zdielani - podla neho uplny zamok
+      # (simona_zamok.yaml) vidi zapnute PC. Kontakt sa pri pauze nezapisuje
+      # (skreslil by odstup nizsie).
+      - action: input_datetime.set_datetime
+        target:
+          entity_id: input_datetime.simona_zamok_pc_ozvanie
+        data:
+          datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
       - condition: state
         entity_id: input_boolean.simona_zdielany_cas
         state: "on"

@@ -850,7 +850,9 @@ function restoreActions(cat, p, now) {
     return actions;
 }
 
-function fullLockPlan(now) {
+// fresh = stav kategorii je stiahnuty zo servera v tom istom (serializovanom)
+// volani; zaznam zruseneho zamku sa maze len podla neho
+function fullLockPlan(now, fresh) {
     const actions = [], released = [];
     let changed = false;
     for (const [childId, rec] of Object.entries(state.fullLocks || {})) {
@@ -866,7 +868,7 @@ function fullLockPlan(now) {
                 mine.push(...lockActions(cat));
             }
         }
-        if (rec.releasing && mine.length === 0) released.push(childId);
+        if (rec.releasing && mine.length === 0 && fresh) released.push(childId);
         actions.push(...mine);
     }
     for (const childId of released) {
@@ -879,20 +881,38 @@ function fullLockPlan(now) {
     return actions;
 }
 
+// Vsetka praca so zamkom (prikaz z HA aj vynucovanie v tiku) ide jedna po
+// druhej: zrusenie nesmie porovnavat povodny stav so stavom pred este
+// nedokoncenym pushom zamku.
+let lockChain = Promise.resolve();
+function lockSerial(fn) {
+    const p = lockChain.then(fn, fn);
+    lockChain = p.catch(() => { });
+    return p;
+}
+
 // Server chybnu akciu preskoci a vrati 200 so shouldDoFullSync - pre zamok
 // je to chyba (HA by inak hlasilo zamok, ktory neplati), stav sa dorovna
 // pri dalsej synchronizacii.
-async function enforceFullLocks() {
-    const actions = fullLockPlan(Date.now());
+async function enforceFullLocksNow() {
+    const releasing = Object.values(state.fullLocks || {}).some((r) => r.releasing);
+    if (releasing) await pull();
+    const actions = fullLockPlan(Date.now(), releasing);
     if (actions.length === 0) return;
+    const pushedAt = Date.now();
+    for (const rec of Object.values(state.fullLocks || {})) if (!rec.releasing) rec.pushedAt = pushedAt;
     log('uplny zamok: posielam', actions.length, 'akcii');
     const r = await pushActions(actions);
     await pull();
-    fullLockPlan(Date.now());
+    fullLockPlan(Date.now(), true);
+    saveState();
+    scheduleDeliveryCheck();
     if (r && r.shouldDoFullSync) throw new Error('uplny zamok: server cast akcii neuplatnil, skusim znova');
 }
+const enforceFullLocks = () => lockSerial(enforceFullLocksNow);
 
-async function setFullLock(child, on) {
+const setFullLock = (child, on) => lockSerial(() => setFullLockNow(child, on));
+async function setFullLockNow(child, on) {
     state.fullLocks = state.fullLocks || {};
     const rec = state.fullLocks[child.id];
     if (on) {
@@ -902,8 +922,13 @@ async function setFullLock(child, on) {
             state.fullLocks[child.id] = { since: Date.now(), prev };
             log('uplny zamok ZAPNUTY pre', child.name);
         } else if (rec.releasing) {
-            // rusenie este neprebehlo - zamok ostava, povodny stav tiez
+            // rusenie este neprebehlo - zamok ostava, povodny stav (prev) tiez;
+            // dorucenie na tablet treba potvrdit znova (cast rusenia ho mohla zastihnut)
             delete rec.releasing;
+            delete rec.appliedAt;
+            delete rec.deliveredAt;
+            delete rec.pushedAt;
+            rec.since = Date.now();
             log('uplny zamok znova ZAPNUTY pre', child.name);
         }
     } else if (rec) {
@@ -914,6 +939,7 @@ async function setFullLock(child, on) {
     } else {
         // zaznam chyba (strateny stav mosta): uvolnit kategorie s podpisom
         // zamku, ostatne nechat tak, ako su
+        await pull();
         const orphans = catsOf(child.id).filter(hasLockSignature).length;
         if (orphans === 0) return;
         const prev = {};
@@ -922,7 +948,7 @@ async function setFullLock(child, on) {
         log('uplny zamok bez zaznamu: uvolnujem', orphans, 'kategorii pre', child.name);
     }
     saveState();
-    await enforceFullLocks();
+    await enforceFullLocksNow();
 }
 
 // Pocas zamku (aj kym sa rusi) most nedovoli kategorie dietata odblokovat
@@ -936,10 +962,11 @@ function assertNotFullLocked(childId) {
         : 'uplny zamok je zapnuty - najprv ho zrus (/odomkni)');
 }
 
-// Dorucenie zamku na tablet: server novy stav posle kazdemu pripojenemu
-// zariadeniu hned a zariadeniu, ktore sa pripoji neskor, pri pripojeni.
-// Zamok je teda na tablete, ked bol uplatneny a niektore zariadenie s
-// prihlasenym dietatom bolo odvtedy pripojene.
+// Dorucenie zamku na tablet: zariadenie s prihlasenym dietatom si po
+// poslednom pushe zamku stiahlo zmeny (pull-status; server ho na zmenu
+// upozorni hned, ked je pripojene, inak sa stiahne pri pripojeni). Cas
+// stiahnutia zapisuje doplnok servera (ha-sync, GET /status -> pulls), takze
+// zastarany zoznam pripojenych zariadeni ani odpojeny tablet nic nepotvrdia.
 function trackFullLockDelivery(now) {
     for (const [childId, rec] of Object.entries(state.fullLocks || {})) {
         if (rec.releasing) continue;
@@ -947,14 +974,25 @@ function trackFullLockDelivery(now) {
         const applied = cats.length > 0 && cats.every((c) => c.base.tempBlocked && !c.base.tempBlockTime);
         if (!applied) { delete rec.appliedAt; delete rec.deliveredAt; continue; }
         if (!rec.appliedAt) rec.appliedAt = now;
-        if (!rec.deliveredAt && syncStatus) {
-            const mine = state.devices.filter((d) => d.currentUserId === childId && d.deviceId !== state.deviceId).map((d) => d.deviceId);
-            if (syncStatus.devices.some((d) => mine.includes(d.deviceId))) {
-                rec.deliveredAt = now;
-                log('uplny zamok dorucene na tablet pre', (userById(childId) || {}).name || childId);
-            }
+        if (rec.deliveredAt || !syncStatus || !syncStatus.pulls) continue;
+        const since = rec.pushedAt || rec.since;
+        const mine = state.devices.filter((d) => d.currentUserId === childId && d.deviceId !== state.deviceId);
+        const pulled = mine.map((d) => Date.parse(syncStatus.pulls[d.deviceId] || '') || 0).filter((t) => t >= since);
+        if (pulled.length > 0) {
+            rec.deliveredAt = Math.min(...pulled);
+            log('uplny zamok dorucene na tablet pre', (userById(childId) || {}).name || childId);
         }
     }
+}
+
+// po pushe zamku si tablet zmeny stiahne do sekundy-dvoch - HA to nech vidi
+// hned, nie az o tik
+let deliveryTimers = [];
+function scheduleDeliveryCheck() {
+    deliveryTimers.forEach(clearTimeout);
+    deliveryTimers = [2500, 7000].map((ms) => setTimeout(() => {
+        refreshSyncStatus().then(() => { publishState(); saveState(); }).catch(() => { });
+    }, ms));
 }
 
 async function addChild(name, timeZone) {

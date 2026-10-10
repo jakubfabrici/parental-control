@@ -37,11 +37,14 @@
  * Endpointy (len 127.0.0.1 vnutri kontajnera, most bezi vedla):
  *   POST /sync                    - hned synchronizovat (tlacidlo v HA)
  *   POST /screen?state=on|off|unknown
- *   GET  /status                  - stav pripojenych detskych zariadeni
+ *   GET  /status                  - stav pripojenych detskych zariadeni a cas
+ *                                   posledneho stiahnutia zmien kazdym
+ *                                   zariadenim (pulls; zapisuje notePull z
+ *                                   build/api/sync.js)
  * HA_SYNC_DISABLE=1 doplnok vypne.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.startPeriodicSync = void 0;
+exports.startPeriodicSync = exports.notePull = void 0;
 const http = require("http");
 
 const seconds = (name, fallback, min) => {
@@ -61,6 +64,10 @@ const disabled = process.env.HA_SYNC_DISABLE === '1';
 const screen = { state: 'unknown', at: Date.now() };
 // pripojene zariadenia
 const controls = new Set();
+// deviceId -> cas posledneho pull-status (zariadenie si stiahlo zmeny)
+const pulls = new Map();
+const notePull = (deviceId) => { pulls.set(deviceId, Date.now()); };
+exports.notePull = notePull;
 
 const startPeriodicSync = ({ socket, database, familyId, deviceId }) => {
     if (disabled) return;
@@ -144,7 +151,8 @@ const status = () => ({
         connectedAt: new Date(c.st.connectedAt).toISOString(),
         lastUploadAt: c.st.lastSeqChangeAt ? new Date(c.st.lastSeqChangeAt).toISOString() : null,
         lastNudgeAt: new Date(c.st.lastEmit).toISOString()
-    }))
+    })),
+    pulls: Object.fromEntries([...pulls].map(([id, at]) => [id, new Date(at).toISOString()]))
 });
 
 if (!disabled) {
