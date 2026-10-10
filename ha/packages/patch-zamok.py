@@ -2,7 +2,8 @@
 """Telegram /cas: stav a tlacidlo uplneho zamku (balik simona_zamok.yaml).
 
 - v prehlade riadok "Uplny zamok", kym je input_boolean.simona_uplny_zamok
-  zapnuty (vtedy sa neukazuje aj "Tablet je zablokovany" - je to to iste);
+  zapnuty (vtedy sa neukazuje aj "Tablet je zablokovany" - je to to iste),
+  s tym, ci si tablet zamok uz stiahol (atribut delivered zo senzora mosta);
 - tlacidlo "Uplny zamok" / "Zrusit uplny zamok" (callback /pcz_*, obsluhuje
   automatizacia simona_zamok_telegram; zapnutie sa najprv opyta).
 
@@ -28,7 +29,7 @@ def swap(name, old, new):
 swap("prehlad-zamok", """{% if is_state('switch.timelimit_simonka_zablokovane','on') %}
             {{ '\\n' }}🔒 <b>Tablet je zablokovaný</b> (TimeLimit){% endif %}
 """, """{% if is_state('input_boolean.simona_uplny_zamok','on') %}
-            {{ '\\n' }}🔐 <b>Úplný zámok</b> — tablet je zamknutý, počítač sa pri zapnutí hneď vypne{% elif is_state('switch.timelimit_simonka_zablokovane','on') %}
+            {{ '\\n' }}🔐 <b>Úplný zámok</b> — {{ 'tablet je zamknutý' if state_attr('binary_sensor.timelimit_simonka_uplny_zamok','delivered') == true else 'tablet sa zamkne, keď sa pripojí' }}, počítač sa pri zapnutí hneď vypne{% elif is_state('switch.timelimit_simonka_zablokovane','on') %}
             {{ '\\n' }}🔒 <b>Tablet je zablokovaný</b> (TimeLimit){% endif %}
 """)
 

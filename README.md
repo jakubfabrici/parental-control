@@ -263,7 +263,7 @@ ho zámerne nerobí, do automatizácie pridá len poznámku.
 | `counter.simona_pc_skok_zamietnuty` | Koľko hlásení po sebe prinieslo spotrebu, ktorá sa nedala stihnúť (HA ju zamietol). |
 | `input_boolean.simona_zdielany_cas` | Hlavný vypínač. Keď je `off`, HA nezasahuje do ničoho. |
 | `input_boolean.simona_bez_limitu` | Režim bez limitu — kým je zapnutý, čas sa neráta. |
-| `input_boolean.simona_uplny_zamok` | [Úplný zámok](#úplný-zámok) — tablet celý zamknutý, PC sa hneď vypne a pri každom zapnutí znova. `binary_sensor.timelimit_simonka_uplny_zamok` potvrdzuje, že ho most uplatnil. |
+| `input_boolean.simona_uplny_zamok` | [Úplný zámok](#úplný-zámok) — tablet celý zamknutý, PC sa hneď vypne a pri každom zapnutí znova. `binary_sensor.timelimit_simonka_uplny_zamok` je stav mosta (zapnutý aj kým sa zámok ešte ruší); atribúty `applied` (server zablokoval všetky kategórie) a `delivered` (tablet si zámok stiahol). |
 | `input_number.simona_offset_tablet`, `…_pc` | Minúty, ktoré sa nezapočítali (nazbierané počas režimu bez limitu). |
 | `input_number.simona_snap_tablet`, `…_pc` | Stav v okamihu zapnutia režimu. |
 | `sensor.simona_pc_zapocitane` | Minúty pri PC po odrátaní nezapočítaných. |
@@ -399,13 +399,27 @@ zapnutý, platí nad spoločným časom aj režimom bez limitu:
   zakázať nedá (TimeLimit to nevie, companion appka tiež nie) — zablokované
   je všetko, čo sa za ním dá otvoriť. Most zámok drží aj cez reštart, každých
   15 s ho vynucuje (keď niečo odblokuje appka rodiča) a po zrušení vráti
-  kategórie do stavu pred zámkom. Tablet sa zamkne, keď je online — pri
-  zhasnutej obrazovke hneď po jej zapnutí. V HA to potvrdzuje
-  `binary_sensor.timelimit_simonka_uplny_zamok`.
+  kategórie do stavu pred zámkom. Keď server pri zrušení neodpovedá, most to
+  skúša pri každej synchronizácii znova a dovtedy hlási zámok ako zapnutý
+  (Telegram povie „ruší sa"). Počas zámku most odmietne odblokovanie iným
+  príkazom — prepínač „Zablokované", menu *Simonka Tablet*, tlačidlá v
+  dashboarde; najprv treba zrušiť zámok.
+  Tablet sa zamkne, keď je online — pri zhasnutej obrazovke hneď po jej
+  zapnutí. Tablet bez pripojenia (lietadlový režim, vypnutá Wi-Fi) si zámok
+  stiahne až po pripojení, dovtedy sa na ňom dá hrať offline; HA to vidí
+  (`binary_sensor.timelimit_simonka_uplny_zamok`, atribút `delivered`) a
+  dashboard aj Telegram píšu „zamkne sa, keď sa pripojí". Keď sa pripojí,
+  rodičom príde správa „Tablet sa pripojil a je zamknutý".
 - **PC** — hneď dostane príkaz na vypnutie (hlas „Úplný zámok – počítač sa
   vypína", vynútené vypnutie o 5 s). Keď ho niekto zapne, vypne sa znova,
   hneď ako sa agent ozve (hlási každých 30 s; po štarte Windows to trvá kým
-  sa agent spustí). Obom rodičom príde Telegram. Agentov `block` sa zámerne
+  sa agent spustí) — aj keď je spoločný čas pozastavený (hlásenie vtedy
+  zapíše `input_datetime.simona_zamok_pc_ozvanie`, záplata
+  `patch-zamok-pc.py`). Obom rodičom príde jedna správa za každé zapnutie;
+  keď PC ani po 3 minútach neprestane hlásiť (agent príkaz neprijal alebo
+  vypnutie niekto zrušil), jedno upozornenie, potom najviac raz za 30 minút.
+  Zrušenie zámku do minúty po príkaze na vypnutie vypnutie PC zastaví
+  (`shutdown /a`). Agentov `block` sa zámerne
   nepoužíva: agent si ho pamätá do polnoci a keby sa zámok zrušil pri
   vypnutom PC, vypínal by ho aj potom.
 
@@ -436,6 +450,7 @@ s tlačidlom na synchronizáciu.
 | `ha/packages/simona_cas.yaml` | `/config/packages/` — rozvrh, účtovanie, prepočty, cieľ pre TimeLimit, PC, skripty pre dashboard |
 | `ha/packages/simona_cas_telegram.yaml` | `/config/packages/` — Telegram prehľad a tlačidlá |
 | `ha/packages/simona_zamok.yaml` | `/config/packages/` — úplný zámok (prepínač, vypínanie PC, Telegram `/zamok` `/odomkni`) |
+| `ha/packages/patch-zamok.py`, `patch-zamok-pc.py` | záplaty pre úplný zámok: stav a tlačidlo v Telegram `/cas`; hlásenie PC počas zámku aj pri pozastavenom spoločnom čase |
 | `ha/packages/simona_tablet_sync.yaml` | `/config/packages/` — stav obrazovky tabletu (senzor Interactive z companion appky) posiela serveru TimeLimit, ten podľa neho tablet synchronizuje |
 | `ha/packages/simona_tablet_ochrana.yaml` | `/config/packages/` — Telegram pri manipulácii s TimeLimit na tablete a keď v ňom nie je prihlásená Simonka |
 | `ha/packages/patch-*.py` | idempotentné záplaty, ktorými sa obe kópie (repo aj `/config/`) menili naraz — po zbehnutí majú rovnaký md5; staršie sú záznamom histórie |

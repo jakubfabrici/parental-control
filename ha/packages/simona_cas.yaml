@@ -665,12 +665,32 @@ automation:
           - POST
         local_only: true
     conditions:
-      - condition: state
-        entity_id: input_boolean.simona_zdielany_cas
-        state: "on"
+      - condition: or
+        conditions:
+          - condition: state
+            entity_id: input_boolean.simona_zdielany_cas
+            state: "on"
+          - condition: state
+            entity_id: input_boolean.simona_uplny_zamok
+            state: "on"
       - condition: template
         value_template: "{{ trigger.json is defined and trigger.json.used is defined }}"
     actions:
+      # Uplny zamok (simona_zamok.yaml) vidi zapnute PC aj pri pozastavenom
+      # zdielani - kontakt sa vtedy nezapisuje (skreslil by odstup nizsie).
+      - if:
+          - condition: state
+            entity_id: input_boolean.simona_uplny_zamok
+            state: "on"
+        then:
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.simona_zamok_pc_ozvanie
+            data:
+              datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"
+      - condition: state
+        entity_id: input_boolean.simona_zdielany_cas
+        state: "on"
       - variables:
           novy: >-
             {{ trigger.json.idle_sec is defined and trigger.json.age_sec is defined }}

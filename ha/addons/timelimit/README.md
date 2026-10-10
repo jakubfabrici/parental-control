@@ -286,13 +286,29 @@ tabletu a adb) — potom TimeLimit zabráni aj odinštalovaniu a resetu.
 
 Príkaz `{"action":"full_lock","child":"Simonka","on":true|false}` (posiela ho
 `ha/packages/simona_zamok.yaml`). Zapnutie si zapamätá stav kategórií dieťaťa
-(`state.fullLocks`), potom všetky jeho kategórie zablokuje natrvalo
-(`UPDATE_CATEGORY_TEMPORARILY_BLOCKED` bez `endTime`) a zapne skrývanie
-upozornení (`UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS`). Pri každej
+(`state.fullLocks`, prežije reštart aj nové prihlásenie mosta), potom všetky
+jeho kategórie zablokuje natrvalo (`UPDATE_CATEGORY_TEMPORARILY_BLOCKED` bez
+`endTime`) a zapne skrývanie upozornení
+(`UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS`, odklad 0). Pri každej
 synchronizácii (15 s) to vynúti znova — kategóriu pridanú počas zámku tiež.
+
+Skryté upozornenia tablet pri blokovanej kategórii nepotrebuje (skrýva ich
+aj tak); slúžia ako **podpis zámku**: bežné blokovanie ich nemení, takže most
+svoj zámok spozná aj bez záznamu. Kategória s podpisom sa pri zapnutí berie
+ako voľná a `full_lock` off bez záznamu uvoľní práve kategórie s podpisom.
+
 Zrušenie vráti každú kategóriu do pôvodného stavu (aj dočasný blok, ak ešte
-nevypršal). Stav ukazuje `binary_sensor.timelimit_simonka_uplny_zamok`
-(atribút `full_lock` v stave dieťaťa).
+nevypršal). Záznam sa zmaže, až keď to server naozaj uplatnil — pri chybe
+alebo `shouldDoFullSync` (server akciu preskočil) ostane ako `releasing` a
+most to skúša pri každej synchronizácii. Kým záznam existuje, most odmietne
+`block`/`unblock` a `…/blocked/set` pre kategórie dieťaťa (chyba na
+`timelimit/bridge/error`).
+
+`binary_sensor.timelimit_simonka_uplny_zamok` je zapnutý, kým záznam
+existuje (aj počas rušenia). Atribúty: `since`, `releasing`, `applied`
+(server má všetky kategórie natrvalo zablokované), `delivered` a
+`delivered_at` (odkedy bolo uplatnené, bolo pripojené zariadenie s
+prihláseným dieťaťom — server mu nový stav poslal).
 
 ### Strop na dnes a pravidlá appky
 

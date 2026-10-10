@@ -215,7 +215,13 @@ async function enroll(mail) {
         mail,
         deviceAuthToken: r.deviceAuthToken,
         deviceId: r.ownDeviceId,
-        published: state.published || {}
+        published: state.published || {},
+        // stav, ktory vlastni HA - bez neho by most po novom prihlaseni zabudol
+        // uplny zamok (a jeho zrusenie by potom "obnovilo" zamknute kategorie)
+        fullLocks: state.fullLocks || {},
+        haRules: state.haRules || {},
+        targets: state.targets || {},
+        lastUploads: state.lastUploads || {}
     });
     applyServerStatus(r.data || {});
     const me = state.devices.find((d) => d.deviceId === state.deviceId);
@@ -433,6 +439,7 @@ function childSummary(child, now) {
     const tops = limitedTopCatsOf(child.id).map((c) => categorySummary(c, now));
     const all = catsOf(child.id).map((c) => categorySummary(c, now));
     const withLimit = tops.filter((c) => c.limit_min !== null);
+    const lock = (state.fullLocks || {})[child.id];
     return {
         id: child.id,
         name: child.name,
@@ -444,8 +451,14 @@ function childSummary(child, now) {
         // zablokovanie dietata = vsetky vrcholove kategorie vratane Allowed Apps
         blocked: (() => { const all = topCatsOf(child.id); return all.length > 0 && all.every((c) => isBlocked(c, now)); })(),
         no_limits: !!(child.disableLimitsUntil && child.disableLimitsUntil > now),
-        full_lock: !!(state.fullLocks && state.fullLocks[child.id]),
-        full_lock_since: state.fullLocks && state.fullLocks[child.id] ? new Date(state.fullLocks[child.id].since).toISOString() : null,
+        // zamok plati alebo sa este rusi (releasing) - HA ho do konca zrusenia hlasi ako zapnuty
+        full_lock: !!lock,
+        full_lock_releasing: !!(lock && lock.releasing),
+        full_lock_since: lock ? new Date(lock.since).toISOString() : null,
+        // server vsetky kategorie naozaj zablokoval / tablet si to uz stiahol
+        full_lock_applied: !!(lock && !lock.releasing && lock.appliedAt),
+        full_lock_delivered: !!(lock && !lock.releasing && lock.deliveredAt),
+        full_lock_delivered_at: lock && !lock.releasing && lock.deliveredAt ? new Date(lock.deliveredAt).toISOString() : null,
         no_limits_until: child.disableLimitsUntil || 0,
         categories: all
     };
@@ -522,6 +535,7 @@ function actBlock(categoryId, blocked, endTime) {
 }
 
 async function setChildBlocked(child, blocked, minutes) {
+    assertNotFullLocked(child.id);
     const endTime = blocked && minutes ? Date.now() + minutes * MINUTE : undefined;
     // zablokovat staci vrcholove kategorie (podkategorie dedia), odblokovat vsetky
     const cats = blocked ? topCatsOf(child.id) : catsOf(child.id);
@@ -530,6 +544,7 @@ async function setChildBlocked(child, blocked, minutes) {
 }
 
 async function setCategoryBlocked(cat, blocked, minutes) {
+    assertNotFullLocked(cat.base.childId);
     const endTime = blocked && minutes ? Date.now() + minutes * MINUTE : undefined;
     await pushActions([actBlock(cat.base.categoryId, blocked, endTime)]);
 }
@@ -780,16 +795,101 @@ async function refreshSyncStatus() {
 // {"action":"full_lock","child":"Simonka","on":true}): vsetky kategorie
 // dietata zablokovane natrvalo - aj "Allowed Apps" so systemovymi appkami
 // (.dummy.system_image), takze TimeLimit prekryje svojou obrazovkou kazdu
-// appku aj domovsku obrazovku - a upozornenia blokovanych appiek skryte.
-// Stav drzi most (aj cez restart) a pri kazdej synchronizacii ho vynucuje
-// (ked medzitym nieco odblokuje appka rodica alebo vyprsi docasny blok).
-// Po zruseni vrati kazdu kategoriu do stavu, v akom bola pred zamkom.
+// appku aj domovsku obrazovku - a upozornenia skryte.
+// Stav drzi most (aj cez restart a nove prihlasenie) a pri kazdej
+// synchronizacii ho vynucuje (ked medzitym nieco odblokuje appka rodica alebo
+// vyprsi docasny blok). Po zruseni vrati kazdu kategoriu do stavu, v akom bola
+// pred zamkom; kym sa to serveru nepodari, zaznam ostava (releasing) a most to
+// skusa znova pri kazdej synchronizacii.
+//
+// Skryte upozornenia (blockAllNotifications s odkladom 0) tablet pri
+// blokovanej kategorii nepotrebuje - skryva ich aj tak. Sluzia ako podpis
+// zamku: bezne blokovanie z HA ani z appky ich nemeni, takze most svoj zamok
+// spozna aj vtedy, ked o zazname pride.
+const LOCK_FREE = Object.freeze({ blocked: false, until: 0, notif: false, notifDelay: 0 });
+
+function hasLockSignature(cat) {
+    const b = cat.base || {};
+    return !!b.tempBlocked && !b.tempBlockTime && !!b.blockAllNotifications && !Number(b.blockNotificationDelay);
+}
+
+// stav kategorie pred zamkom; kategoria s podpisom zamku (zvysok zamku, o
+// ktorom most nevie) sa berie ako volna - inak by ho zrusenie "obnovilo"
 function catLockState(cat) {
+    if (hasLockSignature(cat)) return Object.assign({}, LOCK_FREE);
     const b = cat.base || {};
     return {
         blocked: !!b.tempBlocked, until: b.tempBlockTime || 0,
         notif: !!b.blockAllNotifications, notifDelay: Number(b.blockNotificationDelay) || 0
     };
+}
+
+const actNotif = (categoryId, blocked, blockDelay) =>
+    ({ type: 'UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS', categoryId, blocked: !!blocked, blockDelay: blockDelay || 0 });
+
+// co treba poslat, aby kategoria bola zamknuta
+function lockActions(cat) {
+    const b = cat.base, actions = [];
+    if (!(b.tempBlocked && !b.tempBlockTime)) actions.push(actBlock(b.categoryId, true));
+    if (!b.blockAllNotifications || Number(b.blockNotificationDelay)) actions.push(actNotif(b.categoryId, true, 0));
+    return actions;
+}
+
+// co treba poslat, aby bola kategoria v stave p (pred zamkom)
+function restoreActions(cat, p, now) {
+    const b = cat.base, actions = [];
+    const keep = p.blocked && (!p.until || p.until > now);
+    if (keep) {
+        if (!b.tempBlocked || (b.tempBlockTime || 0) !== (p.until || 0)) actions.push(actBlock(b.categoryId, true, p.until || undefined));
+    } else if (b.tempBlocked && (!b.tempBlockTime || b.tempBlockTime > now)) {
+        actions.push(actBlock(b.categoryId, false));
+    }
+    if (!!b.blockAllNotifications !== p.notif || (Number(b.blockNotificationDelay) || 0) !== p.notifDelay) {
+        actions.push(actNotif(b.categoryId, p.notif, p.notifDelay));
+    }
+    return actions;
+}
+
+function fullLockPlan(now) {
+    const actions = [], released = [];
+    let changed = false;
+    for (const [childId, rec] of Object.entries(state.fullLocks || {})) {
+        if (!userById(childId)) { delete state.fullLocks[childId]; changed = true; continue; }
+        const mine = [];
+        for (const cat of catsOf(childId)) {
+            const categoryId = cat.base.categoryId;
+            if (rec.releasing) {
+                mine.push(...restoreActions(cat, rec.prev[categoryId] || LOCK_FREE, now));
+            } else {
+                // kategoria pridana pocas zamku: po zruseni ostane volna
+                if (!rec.prev[categoryId]) { rec.prev[categoryId] = Object.assign({}, LOCK_FREE); changed = true; }
+                mine.push(...lockActions(cat));
+            }
+        }
+        if (rec.releasing && mine.length === 0) released.push(childId);
+        actions.push(...mine);
+    }
+    for (const childId of released) {
+        delete state.fullLocks[childId];
+        changed = true;
+        const child = userById(childId);
+        log('uplny zamok ZRUSENY pre', child ? child.name : childId);
+    }
+    if (changed) saveState();
+    return actions;
+}
+
+// Server chybnu akciu preskoci a vrati 200 so shouldDoFullSync - pre zamok
+// je to chyba (HA by inak hlasilo zamok, ktory neplati), stav sa dorovna
+// pri dalsej synchronizacii.
+async function enforceFullLocks() {
+    const actions = fullLockPlan(Date.now());
+    if (actions.length === 0) return;
+    log('uplny zamok: posielam', actions.length, 'akcii');
+    const r = await pushActions(actions);
+    await pull();
+    fullLockPlan(Date.now());
+    if (r && r.shouldDoFullSync) throw new Error('uplny zamok: server cast akcii neuplatnil, skusim znova');
 }
 
 async function setFullLock(child, on) {
@@ -801,49 +901,59 @@ async function setFullLock(child, on) {
             for (const cat of catsOf(child.id)) prev[cat.base.categoryId] = catLockState(cat);
             state.fullLocks[child.id] = { since: Date.now(), prev };
             log('uplny zamok ZAPNUTY pre', child.name);
+        } else if (rec.releasing) {
+            // rusenie este neprebehlo - zamok ostava, povodny stav tiez
+            delete rec.releasing;
+            log('uplny zamok znova ZAPNUTY pre', child.name);
         }
-        saveState();
-        await enforceFullLocks();
-        return;
+    } else if (rec) {
+        if (!rec.releasing) {
+            rec.releasing = Date.now();
+            log('uplny zamok sa rusi pre', child.name);
+        }
+    } else {
+        // zaznam chyba (strateny stav mosta): uvolnit kategorie s podpisom
+        // zamku, ostatne nechat tak, ako su
+        const orphans = catsOf(child.id).filter(hasLockSignature).length;
+        if (orphans === 0) return;
+        const prev = {};
+        for (const cat of catsOf(child.id)) prev[cat.base.categoryId] = catLockState(cat);
+        state.fullLocks[child.id] = { since: Date.now(), prev, releasing: Date.now() };
+        log('uplny zamok bez zaznamu: uvolnujem', orphans, 'kategorii pre', child.name);
     }
-    if (!rec) return;
-    const now = Date.now();
-    const actions = [];
-    for (const cat of catsOf(child.id)) {
-        const categoryId = cat.base.categoryId;
-        const p = rec.prev[categoryId] || { blocked: false, until: 0, notif: false, notifDelay: 0 };
-        const stillBlocked = p.blocked && (!p.until || p.until > now);
-        actions.push(stillBlocked
-            ? actBlock(categoryId, true, p.until || undefined)
-            : actBlock(categoryId, false));
-        actions.push({ type: 'UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS', categoryId, blocked: p.notif, blockDelay: p.notifDelay });
-    }
-    delete state.fullLocks[child.id];
     saveState();
-    log('uplny zamok ZRUSENY pre', child.name);
-    if (actions.length > 0) {
-        await pushActions(actions);
-        await pull();
-    }
+    await enforceFullLocks();
 }
 
-async function enforceFullLocks() {
-    const actions = [];
+// Pocas zamku (aj kym sa rusi) most nedovoli kategorie dietata odblokovat
+// ani prestavit inym prikazom (prepinac "Zablokovane", Telegram, dashboard) -
+// tablet by sa do dalsej synchronizacie odomkol.
+function assertNotFullLocked(childId) {
+    const rec = (state.fullLocks || {})[childId];
+    if (!rec) return;
+    throw new Error(rec.releasing
+        ? 'uplny zamok sa este rusi - blokovanie skus o chvilu'
+        : 'uplny zamok je zapnuty - najprv ho zrus (/odomkni)');
+}
+
+// Dorucenie zamku na tablet: server novy stav posle kazdemu pripojenemu
+// zariadeniu hned a zariadeniu, ktore sa pripoji neskor, pri pripojeni.
+// Zamok je teda na tablete, ked bol uplatneny a niektore zariadenie s
+// prihlasenym dietatom bolo odvtedy pripojene.
+function trackFullLockDelivery(now) {
     for (const [childId, rec] of Object.entries(state.fullLocks || {})) {
-        if (!userById(childId)) { delete state.fullLocks[childId]; continue; }
-        for (const cat of catsOf(childId)) {
-            const categoryId = cat.base.categoryId;
-            // kategoria pridana pocas zamku: po zruseni ostane odblokovana
-            if (!rec.prev[categoryId]) rec.prev[categoryId] = { blocked: false, until: 0, notif: false, notifDelay: 0 };
-            const b = cat.base;
-            if (!(b.tempBlocked && !b.tempBlockTime)) actions.push(actBlock(categoryId, true));
-            if (!b.blockAllNotifications) actions.push({ type: 'UPDATE_CATEGORY_BLOCK_ALL_NOTIFICATIONS', categoryId, blocked: true, blockDelay: 0 });
+        if (rec.releasing) continue;
+        const cats = catsOf(childId);
+        const applied = cats.length > 0 && cats.every((c) => c.base.tempBlocked && !c.base.tempBlockTime);
+        if (!applied) { delete rec.appliedAt; delete rec.deliveredAt; continue; }
+        if (!rec.appliedAt) rec.appliedAt = now;
+        if (!rec.deliveredAt && syncStatus) {
+            const mine = state.devices.filter((d) => d.currentUserId === childId && d.deviceId !== state.deviceId).map((d) => d.deviceId);
+            if (syncStatus.devices.some((d) => mine.includes(d.deviceId))) {
+                rec.deliveredAt = now;
+                log('uplny zamok dorucene na tablet pre', (userById(childId) || {}).name || childId);
+            }
         }
-    }
-    if (actions.length > 0) {
-        log('uplny zamok: vynucujem', actions.length, 'akcii');
-        await pushActions(actions);
-        await pull();
     }
 }
 
@@ -983,7 +1093,11 @@ function publishDiscovery() {
         mark('binary_sensor', p + 'full_lock');
         discover('binary_sensor', p + 'full_lock', {
             name: 'Úplný zámok', icon: 'mdi:lock', device: dev,
-            state_topic: t + '/state', value_template: "{{ 'ON' if value_json.full_lock else 'OFF' }}"
+            state_topic: t + '/state', value_template: "{{ 'ON' if value_json.full_lock else 'OFF' }}",
+            json_attributes_topic: t + '/state',
+            json_attributes_template: "{{ {'since': value_json.full_lock_since, 'releasing': value_json.full_lock_releasing, "
+                + "'applied': value_json.full_lock_applied, 'delivered': value_json.full_lock_delivered, "
+                + "'delivered_at': value_json.full_lock_delivered_at} | tojson }}"
         });
         mark('switch', p + 'blocked');
         discover('switch', p + 'blocked', {
@@ -1125,6 +1239,7 @@ function publishState() {
             device_id: dev.deviceId, app_version: dev.cAppVersion, is_bridge: dev.deviceId === state.deviceId
         });
     }
+    trackFullLockDelivery(now);
     for (const child of children()) {
         const s = childSummary(child, now);
         const t = BASE + '/child/' + child.id;
@@ -1275,12 +1390,15 @@ async function onMessage(topic, payloadBuf) {
             }
         }
         await pull();
+        await enforceFullLocks();
         publishDiscovery();
         publishState();
         saveState();
     } catch (e) {
         warn('prikaz', topic, payload, 'zlyhal:', e.message);
         pub(BASE + '/bridge/error', { topic, payload, error: e.message, at: new Date().toISOString() }, false);
+        // stav mohol pokrocit aj pri chybe (napr. zamok sa zacal rusit) - nech ho HA vidi hned
+        publishState();
     }
 }
 
@@ -1317,7 +1435,14 @@ async function tick() {
             await pull();
             await refreshSyncStatus();
             await ensureRelaxedPrimaryDevice();
-            await enforceFullLocks();
+            // chyba zamku nesmie zastavit ciele a pravidla - skusi sa znova o tik
+            try {
+                await enforceFullLocks();
+            } catch (e) {
+                if (e.status === 401) throw e;
+                warn(e.message);
+                pub(BASE + '/bridge/error', { topic: 'tick', payload: 'full_lock', error: e.message, at: new Date().toISOString() }, false);
+            }
             await cleanupHaRules();
             await enforceTargets();
         } catch (e) {

@@ -42,7 +42,7 @@ script:
             {{ '\n' }}<i>Strop tabletu {{ states('sensor.simona_tablet_cielovy_limit') | int(0) }} min · PC povolené {{ states('sensor.simona_pc_povolene') | int(0) }} min</i>
             {{ '\n' }}PC: {{ '🟢 online' if pc_on else '⚪ offline' }} · zdieľanie: {{ '✅ zapnuté' if is_state('input_boolean.simona_zdielany_cas','on') else '⏸ pozastavené' }}{% if is_state('input_boolean.simona_bez_limitu','on') %}
             {{ '\n' }}♾ <b>Režim bez limitu</b> — čas sa neráta{% endif %}{% if is_state('input_boolean.simona_uplny_zamok','on') %}
-            {{ '\n' }}🔐 <b>Úplný zámok</b> — tablet je zamknutý, počítač sa pri zapnutí hneď vypne{% elif is_state('switch.timelimit_simonka_zablokovane','on') %}
+            {{ '\n' }}🔐 <b>Úplný zámok</b> — {{ 'tablet je zamknutý' if state_attr('binary_sensor.timelimit_simonka_uplny_zamok','delivered') == true else 'tablet sa zamkne, keď sa pripojí' }}, počítač sa pri zapnutí hneď vypne{% elif is_state('switch.timelimit_simonka_zablokovane','on') %}
             {{ '\n' }}🔒 <b>Tablet je zablokovaný</b> (TimeLimit){% endif %}
           klavesnica:
             - "🔄 Obnoviť:/pct_stav"

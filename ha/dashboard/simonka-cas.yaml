@@ -30,23 +30,41 @@ views:
             entity: input_boolean.simona_uplny_zamok
             name: Úplný zámok (tablet + PC)
             icon: mdi:lock
+            # aj ikona dlazdice prepina (predvolene bez potvrdenia) - rovnake
+            # potvrdenie, podrzanie a dvojklik nerobia nic
             tap_action:
               action: toggle
               confirmation:
                 text: >-
                   Prepnúť úplný zámok? Pri zapnutí sa tablet celý zamkne a
                   počítač sa hneď vypne (a pri každom zapnutí znova).
+            icon_tap_action:
+              action: toggle
+              confirmation:
+                text: >-
+                  Prepnúť úplný zámok? Pri zapnutí sa tablet celý zamkne a
+                  počítač sa hneď vypne (a pri každom zapnutí znova).
+            hold_action:
+              action: none
+            double_tap_action:
+              action: none
 
           - type: markdown
             content: >-
+              {% set z = 'binary_sensor.timelimit_simonka_uplny_zamok' %}
               {% if is_state('input_boolean.simona_uplny_zamok','on') %}### 🔐 Zámok je zapnutý
 
-              📱 Tablet: {{ 'zamknutý ✅' if is_state('binary_sensor.timelimit_simonka_uplny_zamok','on')
-              else 'čaká na most ⏳' }} &nbsp;·&nbsp; 🖥 Počítač: {{ 'zapnutý – vypína sa ⏳'
-              if is_state('binary_sensor.simona_pc_online','on') else 'vypnutý ✅' }}
+              📱 Tablet: {% if state_attr(z,'delivered') == true %}zamknutý ✅{%
+              elif state_attr(z,'applied') == true %}nie je pripojený – zamkne sa, keď sa pripojí ⏳{%
+              else %}čaká na most ⏳{% endif %} &nbsp;·&nbsp; 🖥 Počítač: {{ 'zapnutý – vypína sa ⏳'
+              if is_state('binary_sensor.simona_zamok_pc_zapnute','on') else 'vypnutý ✅' }}
 
-              <small>Tablet sa zamkne, keď je online (pri zhasnutej obrazovke hneď po
-              jej zapnutí). Zrušiť aj cez Telegram /odomkni.</small>
+              <small>Tablet bez pripojenia (zhasnutá obrazovka, lietadlový režim) sa
+              zamkne hneď, ako sa pripojí. Zrušiť aj cez Telegram /odomkni.</small>
+              {% elif is_state(z,'on') %}### 🔓 Zámok sa ruší
+
+              Server TimeLimit zatiaľ neodpovedá, most to skúša ďalej – tablet sa
+              odomkne sám.
               {% else %}Zámok je vypnutý — tablet aj počítač idú podľa spoločného
               času.{% endif %}
 
